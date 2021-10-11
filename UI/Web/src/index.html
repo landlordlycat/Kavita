@@ -5,18 +5,55 @@
   <title>Kavita</title>
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32x32.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="assets/icons/favicon-16x16.png">
-  <link rel="manifest" href="site.webmanifest">
-  <link rel="shortcut icon" href="assets/icons/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="./assets/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="./assets/icons/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="./assets/icons/favicon-16x16.png">
+  <link rel="manifest" href="./site.webmanifest">
+  <link rel="shortcut icon" href="./assets/icons/favicon.ico">
   <meta name="msapplication-TileColor" content="#4ac694">
-  <meta name="msapplication-config" content="assets/icons/browserconfig.xml">
+  <meta name="msapplication-config" content="./assets/icons/browserconfig.xml">
   <meta name="theme-color" content="#ffffff">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
 </head>
 <body class="mat-typography" theme="dark">
   <app-root></app-root>
+  <script>
+    function addScriptTag(d, src) {
+      const script = d.createElement('script');
+      script.type = 'text/javascript';
+      script.onload = function(){
+        // remote script has loaded
+      };
+      script.src = src;
+      d.getElementsByTagName('body')[0].appendChild(script);
+    }
+
+    const pathName = window.location.pathname.split('/');
+
+    const promises = [];
+
+    for (const index of pathName.slice().reverse().keys()) {
+
+      const path = pathName.slice(0, pathName.length - index).join('/');
+      const url = `${window.location.origin}/${path}/api/settings/base-url`;
+      const stripped = url.replace(/([^:]\/)\/+/gi, '$1')
+      promises.push(fetch(stripped));
+    }
+
+    Promise.all(promises).then(result => {
+      const response = result.find(response => response.ok && response.headers.get('content-type').includes('application/json'));
+      if (response) {
+        response.json().then(json => {
+          document.querySelector('base').setAttribute('href', basePath);
+          for (const node of document.querySelectorAll('script[src]')) {
+            addScriptTag(document, `${basePath}/${node.getAttribute('src')}`);
+            node.remove();
+            window['app-config'] = basePath;
+          }
+        });
+      }
+    });
+  </script>
   <noscript>Please enable JavaScript to continue using this application.</noscript>
 </body>
 </html>

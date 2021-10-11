@@ -13,6 +13,7 @@ using API.Services.HostedServices;
 using API.SignalR;
 using Hangfire;
 using Hangfire.MemoryStorage;
+using HtmlAgilityPack;
 using Kavita.Common;
 using Kavita.Common.EnvironmentInfo;
 using Microsoft.AspNetCore.Builder;
@@ -164,15 +165,37 @@ namespace API
 
             var service = serviceProvider.GetRequiredService<IUnitOfWork>();
             var settings = service.SettingsRepository.GetSettingsDto();
+
+
+            var path = !settings.BaseUrl.StartsWith("/")
+                ? $"/{settings.BaseUrl}"
+                : settings.BaseUrl;
+            // When base href update occurs, we need to manually write it into the html file so loads know to prefex with base href
+            // TODO: Figure out how to do this. This sorta works, but is very hacky
+            // var htmlFile = new HtmlDocument {OptionFixNestedTags = true};
+            // htmlFile.Load(Path.Join(Directory.GetCurrentDirectory(), "wwwroot", "index.html"));
+            // var baseElem = htmlFile.DocumentNode.SelectNodes("//base").First();
+            // if (baseElem != null) //  && env.IsProduction()
+            // {
+            //     var href = !path.EndsWith("/")
+            //         ? $"{path}/"
+            //         : path;
+            //     baseElem.Attributes["href"].Value = href;
+            //     htmlFile.Save(Path.Join(Directory.GetCurrentDirectory(), "wwwroot", "index.html"));
+            // }
+
             if (!string.IsNullOrEmpty(settings.BaseUrl) && !settings.BaseUrl.Equals("/"))
             {
-                var path = !settings.BaseUrl.StartsWith("/")
+                path = !settings.BaseUrl.StartsWith("/")
                     ? $"/{settings.BaseUrl}"
                     : settings.BaseUrl;
-                path = !path.EndsWith("/")
-                    ? $"{path}/"
+                path = path.EndsWith("/")
+                    ? path.Substring(0, path.Length - 1)
                     : path;
                 app.UsePathBase(path);
+
+
+
                 Console.WriteLine("Starting with base url as " + path);
             }
 

@@ -10,9 +10,25 @@ if (environment.production) {
 }
 
 function fetchConfig(): Promise<ConfigData> {
+  // const baseElem = document.querySelector('base');
+  // const baseHref = (baseElem?.attributes['href' as keyof NamedNodeMap] as any).value;
+  // if (baseHref != "/") {
+  //   console.log('Overridding api url as base href was found!')
+  //   environment.apiUrl = baseHref + 'api/';
+  //   console.log('New API Url: ', environment.apiUrl);
+  // }
+  
   return fetch(environment.apiUrl + 'settings/base-url')
     .then(response => response.text())
-    .then(response => new ConfigData(response));
+    .then(response => {
+      const data = new ConfigData(response);
+      if (data.baseUrl != "/") {
+        console.log('Overridding api url as base href was found!')
+        environment.apiUrl = data.baseUrl + 'api/';
+        console.log('New API Url: ', environment.apiUrl);
+      }
+      return data;
+    });
 }
 
 fetchConfig().then(config => {
