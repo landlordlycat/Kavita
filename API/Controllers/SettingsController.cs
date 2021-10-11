@@ -10,6 +10,7 @@ using API.Helpers.Converters;
 using API.Interfaces;
 using API.Interfaces.Services;
 using API.Services;
+using HtmlAgilityPack;
 using Kavita.Common;
 using Kavita.Common.Extensions;
 using Microsoft.AspNetCore.Authorization;
