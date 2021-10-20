@@ -32,6 +32,7 @@ import { CollectionsModule } from './collections/collections.module';
 import { ReadingListModule } from './reading-list/reading-list.module';
 import { SAVER, getSaver } from './shared/_providers/saver.provider';
 import { ConfigData } from './_models/config-data';
+import { SideNavComponent } from './side-nav/side-nav.component';
 
 
 @NgModule({
@@ -48,6 +49,7 @@ import { ConfigData } from './_models/config-data';
     RecentlyAddedComponent,
     InProgressComponent,
     DashboardComponent,
+    SideNavComponent,
   ],
   imports: [
     HttpClientModule,
