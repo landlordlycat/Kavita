@@ -168,5 +168,4 @@ export class UtilityService {
         rect.right <= (window.innerWidth || document.documentElement.clientWidth)
     );
   }
-
 }
