@@ -7,7 +7,7 @@ import { SettingsService } from '../admin/settings.service';
 import { User } from '../_models/user';
 import { AccountService } from '../_services/account.service';
 import { MemberService } from '../_services/member.service';
-import { NavService } from '../_services/nav.service';
+import { GlobalService } from '../_services/global.service';
 
 @Component({
   selector: 'app-user-login',
@@ -35,10 +35,11 @@ export class UserLoginComponent implements OnInit {
   isLoaded: boolean = false;
 
   constructor(private accountService: AccountService, private router: Router, private memberService: MemberService, 
-    private toastr: ToastrService, private navService: NavService, private settingsService: SettingsService) { }
+    private toastr: ToastrService, private navService: GlobalService, private settingsService: SettingsService) { }
 
   ngOnInit(): void {
     this.navService.showNavBar();
+    this.navService.hideSideNav();
     this.accountService.currentUser$.pipe(take(1)).subscribe(user => {
       if (user) {
         this.router.navigateByUrl('/library');
@@ -99,6 +100,7 @@ export class UserLoginComponent implements OnInit {
     this.accountService.login(this.model).subscribe(() => {
       this.loginForm.reset();
       this.navService.showNavBar();
+      this.navService.showSideNav();
 
       // Check if user came here from another url, else send to library route
       const pageResume = localStorage.getItem('kavita--auth-intersection-url');

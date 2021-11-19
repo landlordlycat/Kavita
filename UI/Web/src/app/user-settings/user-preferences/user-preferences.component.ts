@@ -8,7 +8,7 @@ import { BookService } from 'src/app/book-reader/book.service';
 import { readingDirections, scalingOptions, pageSplitOptions, readingModes, Preferences } from 'src/app/_models/preferences/preferences';
 import { User } from 'src/app/_models/user';
 import { AccountService } from 'src/app/_services/account.service';
-import { NavService } from 'src/app/_services/nav.service';
+import { GlobalService } from 'src/app/_services/global.service';
 import { ActivatedRoute } from '@angular/router';
 import { SettingsService } from 'src/app/admin/settings.service';
 
@@ -61,7 +61,7 @@ export class UserPreferencesComponent implements OnInit, OnDestroy {
   makeUrl: (val: string) => string = (val: string) => {return this.transformKeyToOpdsUrl(val)};
 
   constructor(private accountService: AccountService, private toastr: ToastrService, private bookService: BookService, 
-    private navService: NavService, private titleService: Title, private route: ActivatedRoute, private settingsService: SettingsService) {
+    private navService: GlobalService, private titleService: Title, private route: ActivatedRoute, private settingsService: SettingsService) {
     this.fontFamilies = this.bookService.getFontFamilies();
 
     this.route.fragment.subscribe(frag => {

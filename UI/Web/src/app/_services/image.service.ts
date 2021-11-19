@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { environment } from 'src/environments/environment';
-import { NavService } from './nav.service';
+import { GlobalService } from './global.service';
 
 @Injectable({
   providedIn: 'root'
@@ -12,7 +12,7 @@ export class ImageService {
   public errorImage = 'assets/images/error-placeholder2-min.png';
   public resetCoverImage = 'assets/images/image-reset-cover-min.png';
 
-  constructor(private navSerivce: NavService) {
+  constructor(private navSerivce: GlobalService) {
     this.navSerivce.darkMode$.subscribe(res => {
       if (res) {
         this.placeholderImage = 'assets/images/image-placeholder.dark-min.png';

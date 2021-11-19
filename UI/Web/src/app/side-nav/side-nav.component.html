@@ -1,7 +1,19 @@
-<div id="side-nav">
-    <div>
-        test 1
+<div class="side-nav">
+    <div class="side-nav-item">
+        <span class="phone-hidden">
+            <i class="fa fa-home" aria-hidden="true"></i>&nbsp;
+        </span>
+        Home
     </div>
-    <div>test 2</div>
-    <div>test 3</div>
+    <div class="side-nav-item" *ngFor="let library of libraries" (click)="handleClick($event, library)">
+        <span class="phone-hidden">
+            <i class="fa {{utilityService.getLibraryTypeIcon(library.type)}}" aria-hidden="true"></i>&nbsp;
+        </span>
+        <span class="side-nav-text">
+            {{library.name}}
+        </span>
+        <span class="card-actions">
+            <app-card-actionables [actions]="actions" [labelBy]="library.name" iconClass="fa-ellipsis-v" (actionHandler)="performAction($event, library)"></app-card-actionables>
+        </span>
+    </div>
 </div>

@@ -1,20 +1,28 @@
 import { Injectable } from '@angular/core';
 import { ReplaySubject } from 'rxjs';
+import { Breakpoint, UtilityService } from '../shared/_services/utility.service';
 
+/**
+ * This is for managing global state in the application
+ */
 @Injectable({
   providedIn: 'root'
 })
-export class NavService {
+export class GlobalService {
 
   private navbarVisibleSource = new ReplaySubject<boolean>(1);
   navbarVisible$ = this.navbarVisibleSource.asObservable();
+
+  private sidenavVisibleSource = new ReplaySubject<boolean>(1);
+  sideNavVisible$ = this.sidenavVisibleSource.asObservable();
 
   private darkMode: boolean = true;
   private darkModeSource = new ReplaySubject<boolean>(1);
   darkMode$ = this.darkModeSource.asObservable();
 
-  constructor() {
+  constructor(private utilityService: UtilityService) {
     this.showNavBar();
+    this.showSideNav();
   }
 
   showNavBar() {
@@ -23,6 +31,14 @@ export class NavService {
 
   hideNavBar() {
     this.navbarVisibleSource.next(false);
+  }
+
+  showSideNav() {
+    this.sidenavVisibleSource.next(true);
+  }
+
+  hideSideNav() {
+    this.sidenavVisibleSource.next(false);
   }
 
   toggleDarkMode() {

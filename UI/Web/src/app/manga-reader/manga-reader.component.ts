@@ -6,7 +6,7 @@ import { User } from '../_models/user';
 import { AccountService } from '../_services/account.service';
 import { ReaderService } from '../_services/reader.service';
 import { FormBuilder, FormGroup } from '@angular/forms';
-import { NavService } from '../_services/nav.service';
+import { GlobalService } from '../_services/global.service';
 import { ReadingDirection } from '../_models/preferences/reading-direction';
 import { ScalingOption } from '../_models/preferences/scaling-option';
 import { PageSplitOption } from '../_models/preferences/page-split-option';
@@ -265,10 +265,11 @@ export class MangaReaderComponent implements OnInit, AfterViewInit, OnDestroy {
 
   constructor(private route: ActivatedRoute, private router: Router, private accountService: AccountService,
               public readerService: ReaderService, private location: Location,
-              private formBuilder: FormBuilder, private navService: NavService, 
+              private formBuilder: FormBuilder, private navService: GlobalService, 
               private toastr: ToastrService, private memberService: MemberService,
               private libraryService: LibraryService, private utilityService: UtilityService) {
                 this.navService.hideNavBar();
+                this.navService.hideSideNav();
   }
 
   ngOnInit(): void {
@@ -351,6 +352,7 @@ export class MangaReaderComponent implements OnInit, AfterViewInit, OnDestroy {
   ngOnDestroy() {
     this.readerService.resetOverrideStyles();
     this.navService.showNavBar();
+    this.navService.showSideNav();
     this.onDestroy.next();
     this.onDestroy.complete();
     this.goToPageEvent.complete();

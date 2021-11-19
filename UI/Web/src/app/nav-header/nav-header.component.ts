@@ -9,7 +9,7 @@ import { SearchResult } from '../_models/search-result';
 import { AccountService } from '../_services/account.service';
 import { ImageService } from '../_services/image.service';
 import { LibraryService } from '../_services/library.service';
-import { NavService } from '../_services/nav.service';
+import { GlobalService } from '../_services/global.service';
 
 @Component({
   selector: 'app-nav-header',
@@ -40,7 +40,7 @@ export class NavHeaderComponent implements OnInit, OnDestroy {
   backToTopNeeded = false;
   private readonly onDestroy = new Subject<void>();
 
-  constructor(public accountService: AccountService, private router: Router, public navService: NavService, 
+  constructor(public accountService: AccountService, private router: Router, public navService: GlobalService, 
     private libraryService: LibraryService, public imageService: ImageService, @Inject(DOCUMENT) private document: Document, 
     private scrollService: ScrollService) { }
 
@@ -74,6 +74,7 @@ export class NavHeaderComponent implements OnInit, OnDestroy {
   logout() {
     this.accountService.logout();
     this.navService.hideNavBar();
+    this.navService.hideSideNav();
     this.router.navigateByUrl('/login');
   }
 

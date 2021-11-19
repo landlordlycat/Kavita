@@ -5,7 +5,7 @@ import { take } from "rxjs/operators";
 import { environment } from "src/environments/environment";
 import { ClientInfo } from "../_models/stats/client-info";
 import { DetailsVersion } from "../_models/stats/details-version";
-import { NavService } from "./nav.service";
+import { GlobalService } from "./global.service";
 import { version } from '../../../package.json';
 
 
@@ -16,7 +16,7 @@ export class StatsService {
 
     baseUrl = environment.apiUrl;
 
-    constructor(private httpClient: HttpClient, private navService: NavService) { }
+    constructor(private httpClient: HttpClient, private navService: GlobalService) { }
 
     public sendClientInfo(data: ClientInfo) {
         return this.httpClient.post(this.baseUrl + 'stats/client-info', data);

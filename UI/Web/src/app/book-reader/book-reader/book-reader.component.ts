@@ -8,7 +8,7 @@ import { debounceTime, take, takeUntil } from 'rxjs/operators';
 import { Chapter } from 'src/app/_models/chapter';
 import { User } from 'src/app/_models/user';
 import { AccountService } from 'src/app/_services/account.service';
-import { NavService } from 'src/app/_services/nav.service';
+import { GlobalService } from 'src/app/_services/global.service';
 import { ReaderService } from 'src/app/_services/reader.service';
 import { SeriesService } from 'src/app/_services/series.service';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
@@ -231,10 +231,11 @@ export class BookReaderComponent implements OnInit, AfterViewInit, OnDestroy {
 
   constructor(private route: ActivatedRoute, private router: Router, private accountService: AccountService,
     private seriesService: SeriesService, private readerService: ReaderService, private location: Location,
-    private renderer: Renderer2, private navService: NavService, private toastr: ToastrService, 
+    private renderer: Renderer2, private navService: GlobalService, private toastr: ToastrService, 
     private domSanitizer: DomSanitizer, private bookService: BookService, private memberService: MemberService,
     private scrollService: ScrollService, private utilityService: UtilityService, private libraryService: LibraryService) {
       this.navService.hideNavBar();
+      this.navService.hideSideNav();
 
       this.darkModeStyleElem = this.renderer.createElement('style');
       this.darkModeStyleElem.innerHTML = this.darkModeStyles;
@@ -348,6 +349,7 @@ export class BookReaderComponent implements OnInit, AfterViewInit, OnDestroy {
       }
     }
     this.navService.showNavBar();
+    this.navService.showSideNav();
 
     const head = document.querySelector('head');
     this.renderer.removeChild(head, this.darkModeStyleElem);
