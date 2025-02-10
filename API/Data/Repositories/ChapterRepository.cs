@@ -1,29 +1,52 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using API.DTOs;
+using API.DTOs.Metadata;
 using API.DTOs.Reader;
 using API.Entities;
+using API.Entities.Enums;
+using API.Extensions;
+using API.Extensions.QueryExtensions;
 using AutoMapper;
 using AutoMapper.QueryableExtensions;
 using Microsoft.EntityFrameworkCore;
 
 namespace API.Data.Repositories;
+#nullable enable
+
+[Flags]
+public enum ChapterIncludes
+{
+    None = 1,
+    Volumes = 2,
+    Files = 4,
+    People = 8,
+    Genres = 16,
+    Tags = 32
+}
 
 public interface IChapterRepository
 {
     void Update(Chapter chapter);
-    Task<IEnumerable<Chapter>> GetChaptersByIdsAsync(IList<int> chapterIds);
-    Task<IChapterInfoDto> GetChapterInfoDtoAsync(int chapterId);
+    void Remove(Chapter chapter);
+    void Remove(IList<Chapter> chapters);
+    Task<IEnumerable<Chapter>> GetChaptersByIdsAsync(IList<int> chapterIds, ChapterIncludes includes = ChapterIncludes.None);
+    Task<IChapterInfoDto?> GetChapterInfoDtoAsync(int chapterId);
     Task<int> GetChapterTotalPagesAsync(int chapterId);
-    Task<Chapter> GetChapterAsync(int chapterId);
-    Task<ChapterDto> GetChapterDtoAsync(int chapterId);
+    Task<Chapter?> GetChapterAsync(int chapterId, ChapterIncludes includes = ChapterIncludes.Files);
+    Task<ChapterDto?> GetChapterDtoAsync(int chapterId, ChapterIncludes includes = ChapterIncludes.Files);
+    Task<ChapterMetadataDto?> GetChapterMetadataDtoAsync(int chapterId, ChapterIncludes includes = ChapterIncludes.Files);
     Task<IList<MangaFile>> GetFilesForChapterAsync(int chapterId);
-    Task<IList<Chapter>> GetChaptersAsync(int volumeId);
+    Task<IList<Chapter>> GetChaptersAsync(int volumeId, ChapterIncludes includes = ChapterIncludes.None);
     Task<IList<MangaFile>> GetFilesForChaptersAsync(IReadOnlyList<int> chapterIds);
-    Task<string> GetChapterCoverImageAsync(int chapterId);
+    Task<string?> GetChapterCoverImageAsync(int chapterId);
     Task<IList<string>> GetAllCoverImagesAsync();
+    Task<IList<Chapter>> GetAllChaptersWithCoversInDifferentEncoding(EncodeFormat format);
     Task<IEnumerable<string>> GetCoverImagesForLockedChaptersAsync();
+    Task<ChapterDto> AddChapterModifiers(int userId, ChapterDto chapter);
+    IEnumerable<Chapter> GetChaptersForSeries(int seriesId);
 }
 public class ChapterRepository : IChapterRepository
 {
@@ -41,11 +64,22 @@ public class ChapterRepository : IChapterRepository
         _context.Entry(chapter).State = EntityState.Modified;
     }
 
-    public async Task<IEnumerable<Chapter>> GetChaptersByIdsAsync(IList<int> chapterIds)
+    public void Remove(Chapter chapter)
+    {
+        _context.Chapter.Remove(chapter);
+    }
+
+    public void Remove(IList<Chapter> chapters)
+    {
+        _context.Chapter.RemoveRange(chapters);
+    }
+
+    public async Task<IEnumerable<Chapter>> GetChaptersByIdsAsync(IList<int> chapterIds, ChapterIncludes includes = ChapterIncludes.None)
     {
         return await _context.Chapter
             .Where(c => chapterIds.Contains(c.Id))
-            .Include(c => c.Volume)
+            .Includes(includes)
+            .AsSplitQuery()
             .ToListAsync();
     }
 
@@ -53,14 +87,14 @@ public class ChapterRepository : IChapterRepository
     /// Populates a partial IChapterInfoDto
     /// </summary>
     /// <returns></returns>
-    public async Task<IChapterInfoDto> GetChapterInfoDtoAsync(int chapterId)
+    public async Task<IChapterInfoDto?> GetChapterInfoDtoAsync(int chapterId)
     {
         var chapterInfo = await _context.Chapter
             .Where(c => c.Id == chapterId)
             .Join(_context.Volume, c => c.VolumeId, v => v.Id, (chapter, volume) => new
             {
-                ChapterNumber = chapter.Range,
-                VolumeNumber = volume.Number,
+                ChapterNumber = chapter.MinNumber,
+                VolumeNumber = volume.Name,
                 VolumeId = volume.Id,
                 chapter.IsSpecial,
                 chapter.TitleName,
@@ -78,20 +112,22 @@ public class ChapterRepository : IChapterRepository
                 data.TitleName,
                 SeriesFormat = series.Format,
                 SeriesName = series.Name,
-                series.LibraryId
+                series.LibraryId,
+                LibraryType = series.Library.Type
             })
             .Select(data => new ChapterInfoDto()
             {
-                ChapterNumber = data.ChapterNumber,
-                VolumeNumber = data.VolumeNumber + string.Empty,
+                ChapterNumber = data.ChapterNumber + string.Empty, // TODO: Fix this
+                VolumeNumber = data.VolumeNumber + string.Empty, // TODO: Fix this
                 VolumeId = data.VolumeId,
                 IsSpecial = data.IsSpecial,
-                SeriesId =data.SeriesId,
+                SeriesId = data.SeriesId,
                 SeriesFormat = data.SeriesFormat,
                 SeriesName = data.SeriesName,
                 LibraryId = data.LibraryId,
                 Pages = data.Pages,
-                ChapterTitle = data.TitleName
+                ChapterTitle = data.TitleName,
+                LibraryType = data.LibraryType
             })
             .AsNoTracking()
             .AsSplitQuery()
@@ -105,14 +141,27 @@ public class ChapterRepository : IChapterRepository
         return _context.Chapter
             .Where(c => c.Id == chapterId)
             .Select(c => c.Pages)
-            .SingleOrDefaultAsync();
+            .FirstOrDefaultAsync();
     }
-    public async Task<ChapterDto> GetChapterDtoAsync(int chapterId)
+    public async Task<ChapterDto?> GetChapterDtoAsync(int chapterId, ChapterIncludes includes = ChapterIncludes.Files)
     {
         var chapter = await _context.Chapter
-            .Include(c => c.Files)
+            .Includes(includes)
             .ProjectTo<ChapterDto>(_mapper.ConfigurationProvider)
             .AsNoTracking()
+            .AsSplitQuery()
+            .FirstOrDefaultAsync(c => c.Id == chapterId);
+
+        return chapter;
+    }
+
+    public async Task<ChapterMetadataDto?> GetChapterMetadataDtoAsync(int chapterId, ChapterIncludes includes = ChapterIncludes.Files)
+    {
+        var chapter = await _context.Chapter
+            .Includes(includes)
+            .ProjectTo<ChapterMetadataDto>(_mapper.ConfigurationProvider)
+            .AsNoTracking()
+            .AsSplitQuery()
             .SingleOrDefaultAsync(c => c.Id == chapterId);
 
         return chapter;
@@ -135,12 +184,14 @@ public class ChapterRepository : IChapterRepository
     /// Returns a Chapter for an Id. Includes linked <see cref="MangaFile"/>s.
     /// </summary>
     /// <param name="chapterId"></param>
+    /// <param name="includes"></param>
     /// <returns></returns>
-    public async Task<Chapter> GetChapterAsync(int chapterId)
+    public async Task<Chapter?> GetChapterAsync(int chapterId, ChapterIncludes includes = ChapterIncludes.Files)
     {
         return await _context.Chapter
-            .Include(c => c.Files)
-            .SingleOrDefaultAsync(c => c.Id == chapterId);
+            .Includes(includes)
+            .OrderBy(c => c.SortOrder)
+            .FirstOrDefaultAsync(c => c.Id == chapterId);
     }
 
     /// <summary>
@@ -148,10 +199,12 @@ public class ChapterRepository : IChapterRepository
     /// </summary>
     /// <param name="volumeId"></param>
     /// <returns></returns>
-    public async Task<IList<Chapter>> GetChaptersAsync(int volumeId)
+    public async Task<IList<Chapter>> GetChaptersAsync(int volumeId, ChapterIncludes includes = ChapterIncludes.None)
     {
         return await _context.Chapter
             .Where(c => c.VolumeId == volumeId)
+            .Includes(includes)
+            .OrderBy(c => c.SortOrder)
             .ToListAsync();
     }
 
@@ -160,22 +213,27 @@ public class ChapterRepository : IChapterRepository
     /// </summary>
     /// <param name="chapterId"></param>
     /// <returns></returns>
-    public async Task<string> GetChapterCoverImageAsync(int chapterId)
+    public async Task<string?> GetChapterCoverImageAsync(int chapterId)
     {
-
         return await _context.Chapter
             .Where(c => c.Id == chapterId)
             .Select(c => c.CoverImage)
-            .AsNoTracking()
             .SingleOrDefaultAsync();
     }
 
     public async Task<IList<string>> GetAllCoverImagesAsync()
     {
-        return await _context.Chapter
+        return (await _context.Chapter
             .Select(c => c.CoverImage)
             .Where(t => !string.IsNullOrEmpty(t))
-            .AsNoTracking()
+            .ToListAsync())!;
+    }
+
+    public async Task<IList<Chapter>> GetAllChaptersWithCoversInDifferentEncoding(EncodeFormat format)
+    {
+        var extension = format.GetExtension();
+        return await _context.Chapter
+            .Where(c => !string.IsNullOrEmpty(c.CoverImage)  && !c.CoverImage.EndsWith(extension))
             .ToListAsync();
     }
 
@@ -185,12 +243,11 @@ public class ChapterRepository : IChapterRepository
     /// <returns></returns>
     public async Task<IEnumerable<string>> GetCoverImagesForLockedChaptersAsync()
     {
-        return await _context.Chapter
+        return (await _context.Chapter
             .Where(c => c.CoverImageLocked)
             .Select(c => c.CoverImage)
             .Where(t => !string.IsNullOrEmpty(t))
-            .AsNoTracking()
-            .ToListAsync();
+            .ToListAsync())!;
     }
 
     /// <summary>
@@ -204,5 +261,41 @@ public class ChapterRepository : IChapterRepository
             .Where(c => chapterIds.Contains(c.ChapterId))
             .AsNoTracking()
             .ToListAsync();
+    }
+
+    public async Task<ChapterDto> AddChapterModifiers(int userId, ChapterDto chapter)
+    {
+        var progress = await _context.AppUserProgresses.Where(x =>
+                x.AppUserId == userId && x.ChapterId == chapter.Id)
+            .AsNoTracking()
+            .FirstOrDefaultAsync();
+        if (progress != null)
+        {
+            chapter.PagesRead = progress.PagesRead ;
+            chapter.LastReadingProgressUtc = progress.LastModifiedUtc;
+            chapter.LastReadingProgress = progress.LastModified;
+        }
+        else
+        {
+            chapter.PagesRead = 0;
+            chapter.LastReadingProgressUtc = DateTime.MinValue;
+            chapter.LastReadingProgress = DateTime.MinValue;
+        }
+
+        return chapter;
+    }
+
+    /// <summary>
+    /// Includes Volumes
+    /// </summary>
+    /// <param name="seriesId"></param>
+    /// <returns></returns>
+    public IEnumerable<Chapter> GetChaptersForSeries(int seriesId)
+    {
+        return _context.Chapter
+            .Where(c => c.Volume.SeriesId == seriesId)
+            .OrderBy(c => c.SortOrder)
+            .Include(c => c.Volume)
+            .AsEnumerable();
     }
 }

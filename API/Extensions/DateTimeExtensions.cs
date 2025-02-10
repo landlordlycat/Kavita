@@ -1,6 +1,7 @@
 ﻿using System;
 
 namespace API.Extensions;
+#nullable enable
 
 public static class DateTimeExtensions
 {
@@ -14,5 +15,11 @@ public static class DateTimeExtensions
     public static DateTime Truncate(this DateTime date, long resolution)
     {
         return new DateTime(date.Ticks - (date.Ticks % resolution), date.Kind);
+    }
+
+    public static DateTime StartOfWeek(this DateTime dt, DayOfWeek startOfWeek)
+    {
+        int diff = (7 + (dt.DayOfWeek - startOfWeek)) % 7;
+        return dt.AddDays(-1 * diff).Date;
     }
 }

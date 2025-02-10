@@ -1,0 +1,27 @@
+@if (data$ | async; as data) {
+  <div class="card" style="width: 18rem;">
+    <div class="card-header text-center">
+      {{title}}
+      @if (description && description.length > 0) {
+        <i class="fa fa-info-circle ms-1" aria-hidden="true" placement="right" [ngbTooltip]="tooltip" role="button" tabindex="0"></i>
+      }
+    </div>
+    <ul class="list-group list-group-flush">
+      @for(item of data; track item) {
+        <li class="list-group-item" [ngClass]="{'underline': handleClick !== undefined}" (click)="doClick(item)">
+          @if (image && image(item); as url) {
+            @if (url && url.length > 0) {
+              <app-image width="32px" [styles]="{'max-height': '32px'}" class="img-top me-1" [imageUrl]="url"></app-image>
+            }
+          }
+          {{item.name}}
+          @if (item.value >= 0) {
+            <span class="float-end">{{item.value | compactNumber}} {{label}}</span>
+          }
+        </li>
+      }
+    </ul>
+  </div>
+}
+
+<ng-template #tooltip>{{description}}</ng-template>

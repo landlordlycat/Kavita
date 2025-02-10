@@ -1,24 +1,28 @@
 ﻿using System.IO;
 using API.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace API.Controllers
+namespace API.Controllers;
+
+#nullable enable
+
+[AllowAnonymous]
+public class FallbackController : Controller
 {
-    public class FallbackController : Controller
+    // ReSharper disable once S4487
+    // ReSharper disable once NotAccessedField.Local
+    private readonly ITaskScheduler _taskScheduler;
+
+    public FallbackController(ITaskScheduler taskScheduler)
     {
-        // ReSharper disable once S4487
-        // ReSharper disable once NotAccessedField.Local
-        private readonly ITaskScheduler _taskScheduler;
+        // This is used to load TaskScheduler on startup without having to navigate to a Controller that uses.
+        _taskScheduler = taskScheduler;
+    }
 
-        public FallbackController(ITaskScheduler taskScheduler)
-        {
-            // This is used to load TaskScheduler on startup without having to navigate to a Controller that uses.
-            _taskScheduler = taskScheduler;
-        }
-
-        public ActionResult Index()
-        {
-            return PhysicalFile(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "index.html"), "text/HTML");
-        }
+    public PhysicalFileResult Index()
+    {
+        return PhysicalFile(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "index.html"), "text/HTML");
     }
 }
+

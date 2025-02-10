@@ -1,10 +1,11 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
+using API.DTOs.Collection;
 
-namespace API.DTOs.CollectionTags
+namespace API.DTOs.CollectionTags;
+
+public class UpdateSeriesForTagDto
 {
-    public class UpdateSeriesForTagDto
-    {
-        public CollectionTagDto Tag { get; init; }
-        public IEnumerable<int> SeriesIdsToRemove { get; init; }
-    }
+    public AppUserCollectionDto Tag { get; init; } = default!;
+    public IEnumerable<int> SeriesIdsToRemove { get; init; } = default!;
 }

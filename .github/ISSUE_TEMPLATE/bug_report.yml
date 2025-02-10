@@ -1,0 +1,96 @@
+name: Bug Report
+description: Help us make Kavita better for everyone by submitting issues you run into while using the program.
+title: "Put a short summary of what went wrong here"
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: "Thanks for taking the time to fill out this bug report!"
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Don't forget to tell us what steps you took so we can try to reproduce.
+      placeholder: Tell us what you see!
+    validations:
+      required: true
+  - type: textarea
+    id: what-was-expected
+    attributes:
+      label: What did you expect?
+      description: What did you expect to happen?
+      placeholder: Tell us what you expected to see! Go in as much detail as possible so we can confirm if the behavior is something that is broken.
+    validations:
+      required: true
+  - type: dropdown
+    id: version
+    attributes:
+      label: Kavita Version Number - If you don not see your version number listed, please update Kavita and see if your issue still persists.
+      multiple: false
+      options:
+        - 0.8.4.2 - Stable
+        - Nightly Testing Branch
+    validations:
+      required: true
+  - type: dropdown
+    id: OS
+    attributes:
+      label: What operating system is Kavita being hosted from?
+      multiple: false
+      options:
+        - Docker (LSIO Container)
+        - Docker (Dockerhub Container)
+        - Docker (Other)
+        - Windows
+        - Linux
+        - Mac
+  - type: dropdown
+    id: desktop-OS
+    attributes:
+      label: If the issue is being seen on Desktop, what OS are you running where you see the issue?
+      multiple: false
+      options:
+        - Windows
+        - Linux
+        - Mac
+  - type: dropdown
+    id: desktop-browsers
+    attributes:
+      label: If the issue is being seen in the UI, what browsers are you seeing the problem on?
+      multiple: true
+      options:
+        - Firefox
+        - Chrome
+        - Safari
+        - Microsoft Edge
+        - Other (List in "Additional Notes" box)
+  - type: dropdown
+    id: mobile-OS
+    attributes:
+      label: If the issue is being seen on Mobile, what OS are you running where you see the issue?
+      multiple: false
+      options:
+        - Android
+        - iOS
+  - type: dropdown
+    id: mobile-browsers
+    attributes:
+      label: If the issue is being seen on the Mobile UI, what browsers are you seeing the problem on?
+      multiple: true
+      options:
+        - Firefox
+        - Chrome
+        - Safari
+        - Other iOS Browser
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Please copy and paste any relevant log output. This will be automatically formatted into code, so no need for backticks.
+      render: shell
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Additional Notes
+      description: Any other information about the issue not covered in this form?
+      placeholder: e.g. Running Kavita on a Raspberry Pi, updating from X version, using LSIO container, etc

@@ -1,46 +1,59 @@
+<ng-container *transloco="let t; read: 'bulk-add-to-collection'">
 
-<div class="modal-header">
-    <h4 class="modal-title" id="modal-basic-title">Add to Collection</h4>
-    <button type="button" class="close" aria-label="Close" (click)="close()">
-    <span aria-hidden="true">&times;</span>
-    </button>
-</div>
-<form style="width: 100%" [formGroup]="listForm">
-<div class="modal-body">
-    <div class="form-group" *ngIf="lists.length >= 5">
-        <label for="filter">Filter</label>
-        <div class="input-group">
+  <div class="modal-header">
+    <h4 class="modal-title" id="modal-basic-title">{{t('title')}}</h4>
+    <button type="button" class="btn-close" [attr.aria-label]="t('close')" (click)="close()"></button>
+  </div>
+  <form style="width: 100%" [formGroup]="listForm">
+    <div class="modal-body">
+      @if (lists.length >= MaxItems) {
+        <div class="mb-3">
+          <label for="filter" class="form-label">{{t('filter-label')}}</label>
+          <div class="input-group">
             <input id="filter" autocomplete="off" class="form-control" formControlName="filterQuery" type="text" aria-describedby="reset-input">
-            <div class="input-group-append">
-                <button class="btn btn-outline-secondary" type="button" id="reset-input" (click)="listForm.get('filterQuery')?.setValue('');">Clear</button>
-            </div>
-        </div>
-    </div>
-    <ul class="list-group">
-        <li class="list-group-item clickable" tabindex="0" role="button" *ngFor="let collectionTag of lists | filter: filterList; let i = index" (click)="addToCollection(collectionTag)">
-            {{collectionTag.title}} <i class="fa fa-angle-double-up" *ngIf="collectionTag.promoted" title="Promoted"></i>
-        </li>
-        <li class="list-group-item" *ngIf="lists.length === 0 && !loading">No collections created yet</li>
-        <li class="list-group-item" *ngIf="loading">
-            <div class="spinner-border text-secondary" role="status">
-                <span class="sr-only">Loading...</span>
-            </div>
-        </li>
-    </ul>
-</div>
-<div class="modal-footer" style="justify-content: normal">
-    <div style="width: 100%;">
-        <div class="form-row">
-            <div class="col-9 col-lg-10">
-              <label class="sr-only" for="add-rlist">Collection</label>
-              <input width="100%" #title ngbAutofocus type="text" class="form-control mb-2" id="add-rlist" formControlName="title">
-            </div>
-            <div class="col-2">
-              <button type="submit" class="btn btn-primary" (click)="create()">Create</button>
-            </div>
+            <button class="btn btn-outline-secondary" type="button" id="reset-input" (click)="listForm.get('filterQuery')?.setValue('');">Clear</button>
           </div>
+        </div>
+      }
+
+      <ul class="list-group">
+        @for(collectionTag of lists | filter: filterList; let i = $index; track collectionTag.title + collectionTag.promoted) {
+          <li class="list-group-item clickable" tabindex="0" role="option"  (click)="addToCollection(collectionTag)">
+            {{collectionTag.title}}
+            @if (collectionTag.promoted) {
+              <i class="fa fa-angle-double-up" [title]="t('promoted')"></i>
+            }
+          </li>
+        }
+
+        @if (lists.length === 0 && !loading) {
+          <li class="list-group-item">{{t('no-data')}}</li>
+        }
+
+        @if (loading) {
+          <li class="list-group-item">
+            <div class="spinner-border text-primary" role="status">
+              <span class="visually-hidden">{{t('loading')}}</span>
+            </div>
+          </li>
+        }
+      </ul>
     </div>
-</div>
-</form>
+    <div class="modal-footer" style="justify-content: normal">
+      <div style="width: 100%;">
+        <div class="d-flex">
+          <div class="col-9 col-lg-10">
+            <label class="form-label visually-hidden" for="add-rlist">{{t('collection-label')}}</label>
+            <input width="100%" #title ngbAutofocus type="text" class="form-control mb-2" id="add-rlist" formControlName="title">
+          </div>
+          <div class="col-2">
+            <button type="submit" class="btn btn-primary" [disabled]="isCreating" (click)="create()">{{t('create')}}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </form>
 
 
+
+</ng-container>

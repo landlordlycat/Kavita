@@ -1,23 +1,14 @@
-$background: rgba(0, 0, 0, .4);
-$primary-color: #4ac694;
-
-
 .number {
   position: absolute;
-  top:50%; 
-  left:50%;
-  z-index:10;
-  font-size:18px;
-  font-weight:500;
-  color:$primary-color;
-  animation: MoveUpDown 1s linear infinite;
+  top: 50%; 
+  left: 46%;
+  font-size: 18px;
 }
 
-@keyframes MoveUpDown {
-    0%, 100% {
-      transform: translateY(0);
-    }
-    50% {
-      transform: translateY(-10px);
-    }
+.indicator {
+  font-weight: 500;
+  margin-left: 2px;
+  z-index: 10;
+  color: var(--primary-color);
+  animation: MoveUpDown 1s linear infinite;
 }

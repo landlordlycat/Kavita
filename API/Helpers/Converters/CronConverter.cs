@@ -1,41 +1,32 @@
 ﻿using System.Collections.Generic;
 using Hangfire;
 
-namespace API.Helpers.Converters
+namespace API.Helpers.Converters;
+#nullable enable
+
+public static class CronConverter
 {
-    public static class CronConverter
+    public static readonly IEnumerable<string> Options = new []
     {
-        public static readonly IEnumerable<string> Options = new []
+        "disabled",
+        "daily",
+        "weekly",
+    };
+    /// <summary>
+    /// Converts to Cron Notation
+    /// </summary>
+    /// <param name="source">Defaults to daily</param>
+    /// <returns></returns>
+    public static string ConvertToCronNotation(string? source)
+    {
+        if (string.IsNullOrEmpty(source)) return Cron.Daily();
+        return source.ToLower() switch
         {
-            "disabled",
-            "daily",
-            "weekly",
+            "daily" => Cron.Daily(),
+            "weekly" => Cron.Weekly(),
+            "disabled" => Cron.Never(),
+            "" => Cron.Never(),
+            _ => source
         };
-        public static string ConvertToCronNotation(string source)
-        {
-            var destination = string.Empty;
-            destination = source.ToLower() switch
-            {
-                "daily" => Cron.Daily(),
-                "weekly" => Cron.Weekly(),
-                "disabled" => Cron.Never(),
-                "" => Cron.Never(),
-                _ => destination
-            };
-
-            return destination;
-        }
-
-        // public static string ConvertFromCronNotation(string cronNotation)
-        // {
-        //     var destination = string.Empty;
-        //     destination = cronNotation.ToLower() switch
-        //     {
-        //         "0 0 31 2 *" => "disabled",
-        //         _ => destination
-        //     };
-        //
-        //     return destination;
-        // }
     }
 }

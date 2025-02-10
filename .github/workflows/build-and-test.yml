@@ -1,0 +1,35 @@
+name: Build and Test PR
+
+on:
+  pull_request:
+    branches: [ '**' ]
+
+jobs:
+  build:
+    name: Build and Test PR
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+        with:
+            fetch-depth: 0
+
+      - name: Setup .NET Core
+        uses: actions/setup-dotnet@v4
+        with:
+            dotnet-version: 9.0.x
+
+      - name: Install Swashbuckle CLI
+        shell: powershell
+        run: dotnet tool install -g Swashbuckle.AspNetCore.Cli
+
+      - name: Install dependencies
+        run: dotnet restore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: csproj
+          path: Kavita.Common/Kavita.Common.csproj
+
+      - name: Test
+        run: dotnet test --no-restore --verbosity normal

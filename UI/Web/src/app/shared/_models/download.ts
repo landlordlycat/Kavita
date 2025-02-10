@@ -1,12 +1,6 @@
-import {
-    HttpEvent,
-    HttpEventType,
-    HttpHeaders,
-    HttpProgressEvent,
-    HttpResponse
-  } from "@angular/common/http";
+import { HttpEvent, HttpEventType, HttpHeaders, HttpProgressEvent, HttpResponse } from "@angular/common/http";
   import { Observable } from "rxjs";
-  import { distinctUntilChanged, scan, map, tap } from "rxjs/operators";
+  import { scan } from "rxjs/operators";
   
   function isHttpResponse<T>(event: HttpEvent<T>): event is HttpResponse<T> {
     return event.type === HttpEventType.Response;
@@ -20,12 +14,17 @@ import {
       event.type === HttpEventType.UploadProgress
     );
   }
-  
+
+/**
+ * Encapsulates an inprogress download of a Blob with progress reporting activated
+ */ 
 export interface Download {
   content: Blob | null;
   progress: number;
   state: "PENDING" | "IN_PROGRESS" | "DONE";
   filename?: string;
+  loaded?: number;
+  total?: number
 }
   
 export function download(saver?: (b: Blob, filename: string) => void): (source: Observable<HttpEvent<Blob>>) => Observable<Download> {
@@ -38,7 +37,9 @@ export function download(saver?: (b: Blob, filename: string) => void): (source: 
                   ? Math.round((100 * event.loaded) / event.total)
                   : previous.progress,
                 state: 'IN_PROGRESS',
-                content: null
+                content: null,
+                loaded: event.loaded,
+                total: event.total
               }
             }
             if (isHttpResponse(event)) {
@@ -49,7 +50,7 @@ export function download(saver?: (b: Blob, filename: string) => void): (source: 
                 progress: 100,
                 state: 'DONE',
                 content: event.body,
-                filename: getFilename(event.headers, '')
+                filename: getFilename(event.headers, ''),
               }
             }
             return previous;

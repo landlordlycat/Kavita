@@ -1,5 +1,38 @@
-<app-nav-header></app-nav-header>
-<div [ngStyle]="(navService?.navbarVisible$ | async) ? {'padding-top': 'calc(56px + 5px)', 'height': '100%'} : {}">
-    <a id="content"></a>
-    <router-outlet></router-outlet>
+<div [ngClass]="{'no-transitions' : (transitionState$ | async)}">
+    @if (accountService.currentUser$ | async; as currentUser) {
+      @if (currentUser && (navService.navbarVisible$ | async) === true) {
+        <div class="fullpage-background">
+          <div class="background-area">
+            <canvas id="backgroundCanvas" class="default-background" style="width: 100%; height: calc(var(--vh) * 100);"></canvas>
+          </div>
+        </div>
+      }
+    }
+    <app-nav-header></app-nav-header>
+
+    <div [ngClass]="{'closed' : (navService.sideNavCollapsed$ | async), 'content-wrapper': navService.sideNavVisibility$ | async}">
+
+      @if (navService.sideNavVisibility$ | async) {
+        @if(navService.usePreferenceSideNav$ | async) {
+          <app-preference-nav></app-preference-nav>
+        } @else {
+          <app-side-nav></app-side-nav>
+        }
+      }
+
+      <div class="" [ngClass]="{'g-0': (navService.sideNavVisibility$ | async) === false}">
+        <a id="content"></a>
+        @if (navService.sideNavVisibility$ | async) {
+          <div>
+            <div class="companion-bar" [ngClass]="{'companion-bar-content': (navService.sideNavCollapsed$ | async) === false || (navService.usePreferenceSideNav$ | async),
+                  'companion-bar-collapsed': ((navService.sideNavCollapsed$ | async) && (navService.usePreferenceSideNav$ | async))}">
+              <router-outlet></router-outlet>
+            </div>
+          </div>
+        } @else {
+          <router-outlet></router-outlet>
+        }
+      </div>
+    </div>
+
 </div>

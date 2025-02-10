@@ -1,0 +1,24 @@
+<ng-container *transloco="let t; read: 'day-breakdown'">
+  <div class="dashboard-card-content">
+    <h4>{{t('title')}}</h4>
+
+    @if (dayBreakdown$ | async; as days) {
+      @if (days.length === 0) {
+        <div>{{t('no-data')}}</div>
+      } @else {
+        <div class="day-breakdown-chart">
+          <table class="charts-css column show-labels show-primary-axis show-4-secondary-axes data-spacing-5">
+            <tbody>
+              @for(day of days; track day) {
+                <tr>
+                  <th scope="row"> {{day.name}} </th>
+                  <td style="{{'--size: ' + (day.value / max)}}"> <span class="data"> {{day.value}}</span> </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    }
+  </div>
+</ng-container>

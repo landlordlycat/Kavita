@@ -1,22 +1,17 @@
-import { Injectable, OnDestroy } from '@angular/core';
-import {
-  HttpRequest,
-  HttpHandler,
-  HttpEvent,
-  HttpInterceptor
-} from '@angular/common/http';
+import {Injectable} from '@angular/core';
+import { HttpRequest, HttpHandler, HttpEvent, HttpInterceptor } from '@angular/common/http';
 import { Observable, throwError } from 'rxjs';
 import { Router } from '@angular/router';
 import { ToastrService } from 'ngx-toastr';
-import { catchError, take } from 'rxjs/operators';
+import { catchError } from 'rxjs/operators';
 import { AccountService } from '../_services/account.service';
-import { environment } from 'src/environments/environment';
+import {translate, TranslocoService} from "@jsverse/transloco";
 
 @Injectable()
 export class ErrorInterceptor implements HttpInterceptor {
-
-  public urlKey: string = 'kavita--no-connection-url';
-  constructor(private router: Router, private toastr: ToastrService, private accountService: AccountService) {}
+  constructor(private router: Router, private toastr: ToastrService,
+              private accountService: AccountService,
+              private translocoService: TranslocoService) {}
 
 
   intercept(request: HttpRequest<unknown>, next: HttpHandler): Observable<HttpEvent<unknown>> {
@@ -40,16 +35,11 @@ export class ErrorInterceptor implements HttpInterceptor {
             this.handleServerException(error);
             break;
           default:
-            // Don't throw multiple Something undexpected went wrong
-            if (this.toastr.previousToastMessage !== 'Something unexpected went wrong.') {
-              this.toastr.error('Something unexpected went wrong.');
+            // Don't throw multiple Something unexpected went wrong
+            const genericError = translate('errors.generic');
+            if (this.toastr.previousToastMessage !== 'Something unexpected went wrong.' && this.toastr.previousToastMessage !== genericError) {
+              this.toast(genericError);
             }
-
-            // If we are not on no-connection, redirect there and save current url so when we refersh, we redirect back there
-            // if (this.router.url !== '/no-connection') {
-            //   localStorage.setItem(this.urlKey, this.router.url);
-            //   this.router.navigateByUrl('/no-connection');
-            // }
             break;
         }
         return throwError(error);
@@ -58,13 +48,19 @@ export class ErrorInterceptor implements HttpInterceptor {
   }
 
   private handleValidationError(error: any) {
-    // This 400 can also be a bad request 
+    // This 400 can also be a bad request
     if (Array.isArray(error.error)) {
       const modalStateErrors: any[] = [];
       if (error.error.length > 0 && error.error[0].hasOwnProperty('message')) {
-        error.error.forEach((issue: {status: string, details: string, message: string}) => {
-          modalStateErrors.push(issue.details);
-        });
+        if (error.error[0].details === null) {
+          error.error.forEach((issue: {status: string, details: string, message: string}) => {
+            modalStateErrors.push(issue.message);
+          });
+        } else {
+          error.error.forEach((issue: {status: string, details: string, message: string}) => {
+            modalStateErrors.push(issue.details);
+          });
+        }
       } else {
         error.error.forEach((issue: {code: string, description: string}) => {
           modalStateErrors.push(issue.description);
@@ -84,44 +80,57 @@ export class ErrorInterceptor implements HttpInterceptor {
       console.error('error:', error);
       if (error.statusText === 'Bad Request') {
         if (error.error instanceof Blob) {
-          this.toastr.error('There was an issue downloading this file or you do not have permissions', error.status);         
-          return; 
+          this.toast('errors.download', error.status);
+          return;
         }
-        this.toastr.error(error.error, error.status);
+        this.toast(error.error, this.translocoService.translate('errors.error-code', {num: error.status}));
       } else {
-        this.toastr.error(error.statusText === 'OK' ? error.error : error.statusText, error.status);
+        this.toast(error.statusText === 'OK' ? error.error : error.statusText, this.translocoService.translate('errors.error-code', {num: error.status}));
       }
     }
   }
 
   private handleNotFound(error: any) {
-    this.toastr.error('That url does not exist.'); 
+    this.toast('errors.not-found');
   }
 
   private handleServerException(error: any) {
     const err = error.error;
     if (err.hasOwnProperty('message') && err.message.trim() !== '') {
-      if (err.message != 'User is not authenticated') {
-        console.log('500 error: ', error);
+      if (err.message != 'User is not authenticated' && error.message !== 'errors.user-not-auth') {
+        console.error('500 error: ', error);
       }
-      this.toastr.error(err.message);
-    } else if (error.hasOwnProperty('message') && error.message.trim() !== '') {
-      if (error.message != 'User is not authenticated') {
-        console.log('500 error: ', error);
+      this.toast(err.message);
+      return;
+    }
+    if (error.hasOwnProperty('message') && error.message.trim() !== '') {
+      if (error.message !== 'User is not authenticated' && error.message !== 'errors.user-not-auth') {
+        console.error('500 error: ', error);
       }
-      this.toastr.error(error.message);
+      return;
     }
-     else {
-      this.toastr.error('There was an unknown critical error.');
-      console.error('500 error:', error);
-    }
+
+    this.toast('errors.unknown-crit');
+    console.error('500 error:', error);
   }
 
   private handleAuthError(error: any) {
-    // NOTE: Signin has error.error or error.statusText available. 
+    // Special hack for register url, to not care about auth
+    if (location.href.includes('/registration/confirm-email?token=')) {
+      return;
+    }
+    // NOTE: Signin has error.error or error.statusText available.
     // if statement is due to http/2 spec issue: https://github.com/angular/angular/issues/23334
-    this.accountService.currentUser$.pipe(take(1)).subscribe(user => {
-      this.accountService.logout();
-    });
+    this.accountService.logout();
   }
+
+  // Assume the title is already translated
+  private toast(message: string, title?: string) {
+    if (message.startsWith('errors.')) {
+      this.toastr.error(this.translocoService.translate(message), title);
+    } else {
+      this.toastr.error(message, title);
+    }
+  }
+
 }

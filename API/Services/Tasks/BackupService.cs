@@ -6,75 +6,65 @@ using System.Linq;
 using System.Threading.Tasks;
 using API.Data;
 using API.Entities.Enums;
-using API.Extensions;
+using API.Logging;
 using API.SignalR;
 using Hangfire;
-using Microsoft.AspNetCore.SignalR;
-using Microsoft.Extensions.Configuration;
+using Kavita.Common.EnvironmentInfo;
 using Microsoft.Extensions.Logging;
 
 namespace API.Services.Tasks;
+#nullable enable
 
 public interface IBackupService
 {
     Task BackupDatabase();
     /// <summary>
-    /// Returns a list of full paths of the logs files detailed in <see cref="IConfiguration"/>.
+    /// Returns a list of all log files for Kavita
     /// </summary>
-    /// <param name="maxRollingFiles"></param>
-    /// <param name="logFileName"></param>
+    /// <param name="rollFiles">If file rolling is enabled. Defaults to True.</param>
     /// <returns></returns>
-    IEnumerable<string> GetLogFiles(int maxRollingFiles, string logFileName);
+    IEnumerable<string> GetLogFiles(bool rollFiles = LogLevelOptions.LogRollingEnabled);
 }
 public class BackupService : IBackupService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<BackupService> _logger;
     private readonly IDirectoryService _directoryService;
-    private readonly IHubContext<MessageHub> _messageHub;
+    private readonly IEventHub _eventHub;
 
     private readonly IList<string> _backupFiles;
 
     public BackupService(ILogger<BackupService> logger, IUnitOfWork unitOfWork,
-        IDirectoryService directoryService, IConfiguration config, IHubContext<MessageHub> messageHub)
+        IDirectoryService directoryService, IEventHub eventHub)
     {
         _unitOfWork = unitOfWork;
         _logger = logger;
         _directoryService = directoryService;
-        _messageHub = messageHub;
-
-        var maxRollingFiles = config.GetMaxRollingFiles();
-        var loggingSection = config.GetLoggingFileName();
-        var files = GetLogFiles(maxRollingFiles, loggingSection);
-
+        _eventHub = eventHub;
 
         _backupFiles = new List<string>()
         {
             "appsettings.json",
-            "Hangfire.db", // This is not used atm
-            "Hangfire-log.db", // This is not used atm
             "kavita.db",
             "kavita.db-shm", // This wont always be there
             "kavita.db-wal" // This wont always be there
         };
-
-        foreach (var file in files.Select(f => (_directoryService.FileSystem.FileInfo.FromFileName(f)).Name).ToList())
-        {
-            _backupFiles.Add(file);
-        }
-
-
     }
 
-    public IEnumerable<string> GetLogFiles(int maxRollingFiles, string logFileName)
+    /// <summary>
+    /// Returns a list of all log files for Kavita
+    /// </summary>
+    /// <param name="rollFiles">If file rolling is enabled. Defaults to True.</param>
+    /// <returns></returns>
+    public IEnumerable<string> GetLogFiles(bool rollFiles = LogLevelOptions.LogRollingEnabled)
     {
-        var multipleFileRegex = maxRollingFiles > 0 ? @"\d*" : string.Empty;
-        var fi = _directoryService.FileSystem.FileInfo.FromFileName(logFileName);
+        var multipleFileRegex = rollFiles ? @"\d*" : string.Empty;
+        var fi = _directoryService.FileSystem.FileInfo.New(LogLevelOptions.LogFile);
 
-        var files = maxRollingFiles > 0
+        var files = rollFiles
             ? _directoryService.GetFiles(_directoryService.LogDirectory,
                 $@"{_directoryService.FileSystem.Path.GetFileNameWithoutExtension(fi.Name)}{multipleFileRegex}\.log")
-            : new[] {"kavita.log"};
+            : new[] {_directoryService.FileSystem.Path.Join(_directoryService.LogDirectory, "kavita.log")};
         return files;
     }
 
@@ -91,17 +81,22 @@ public class BackupService : IBackupService
         if (!_directoryService.ExistOrCreate(backupDirectory))
         {
             _logger.LogCritical("Could not write to {BackupDirectory}; aborting backup", backupDirectory);
+            await _eventHub.SendMessageAsync(MessageFactory.Error,
+                MessageFactory.ErrorEvent("Backup Service Error",$"Could not write to {backupDirectory}; aborting backup"));
             return;
         }
 
-        await SendProgress(0F);
+        await SendProgress(0F, "Started backup");
+        await SendProgress(0.1F, "Copying core files");
 
-        var dateString = $"{DateTime.Now.ToShortDateString()}_{DateTime.Now.ToLongTimeString()}".Replace("/", "_").Replace(":", "_");
-        var zipPath = _directoryService.FileSystem.Path.Join(backupDirectory, $"kavita_backup_{dateString}.zip");
+        var dateString = $"{DateTime.UtcNow.ToShortDateString()}_{DateTime.UtcNow.ToLongTimeString()}".Replace("/", "_").Replace(":", "_");
+        var zipPath = _directoryService.FileSystem.Path.Join(backupDirectory, $"kavita_backup_{dateString}_v{BuildInfo.Version}.zip");
 
         if (File.Exists(zipPath))
         {
-            _logger.LogInformation("{ZipFile} already exists, aborting", zipPath);
+            _logger.LogCritical("{ZipFile} already exists, aborting", zipPath);
+            await _eventHub.SendMessageAsync(MessageFactory.Error,
+                MessageFactory.ErrorEvent("Backup Service Error",$"{zipPath} already exists, aborting"));
             return;
         }
 
@@ -109,18 +104,31 @@ public class BackupService : IBackupService
         _directoryService.ExistOrCreate(tempDirectory);
         _directoryService.ClearDirectory(tempDirectory);
 
+        await SendProgress(0.1F, "Copying config files");
         _directoryService.CopyFilesToDirectory(
-            _backupFiles.Select(file => _directoryService.FileSystem.Path.Join(_directoryService.ConfigDirectory, file)).ToList(), tempDirectory);
+            _backupFiles.Select(file => _directoryService.FileSystem.Path.Join(_directoryService.ConfigDirectory, file)), tempDirectory);
 
-        await SendProgress(0.25F);
+        // Copy any csv's as those are used for manual migrations
+        _directoryService.CopyFilesToDirectory(
+            _directoryService.GetFilesWithCertainExtensions(_directoryService.ConfigDirectory, @"\.csv"), tempDirectory);
 
+        await SendProgress(0.2F, "Copying logs");
+        CopyLogsToBackupDirectory(tempDirectory);
+
+        await SendProgress(0.25F, "Copying cover images");
         await CopyCoverImagesToBackupDirectory(tempDirectory);
 
-        await SendProgress(0.5F);
+        await SendProgress(0.35F, "Copying templates images");
+        CopyTemplatesToBackupDirectory(tempDirectory);
 
+        await SendProgress(0.5F, "Copying bookmarks");
         await CopyBookmarksToBackupDirectory(tempDirectory);
 
-        await SendProgress(0.75F);
+        await SendProgress(0.75F, "Copying themes");
+        CopyThemesToBackupDirectory(tempDirectory);
+
+        await SendProgress(0.85F, "Copying favicons");
+        CopyFaviconsToBackupDirectory(tempDirectory);
 
         try
         {
@@ -133,7 +141,23 @@ public class BackupService : IBackupService
 
         _directoryService.ClearAndDeleteDirectory(tempDirectory);
         _logger.LogInformation("Database backup completed");
-        await SendProgress(1F);
+        await SendProgress(1F, "Completed backup");
+    }
+
+    private void CopyLogsToBackupDirectory(string tempDirectory)
+    {
+        var files = GetLogFiles();
+        _directoryService.CopyFilesToDirectory(files, _directoryService.FileSystem.Path.Join(tempDirectory, "logs"));
+    }
+
+    private void CopyFaviconsToBackupDirectory(string tempDirectory)
+    {
+        _directoryService.CopyDirectoryToDirectory(_directoryService.FaviconDirectory, _directoryService.FileSystem.Path.Join(tempDirectory, "favicons"));
+    }
+
+    private void CopyTemplatesToBackupDirectory(string tempDirectory)
+    {
+        _directoryService.CopyDirectoryToDirectory(_directoryService.TemplateDirectory, _directoryService.FileSystem.Path.Join(tempDirectory, "templates"));
     }
 
     private async Task CopyCoverImagesToBackupDirectory(string tempDirectory)
@@ -154,6 +178,18 @@ public class BackupService : IBackupService
             var chapterImages = await _unitOfWork.ChapterRepository.GetCoverImagesForLockedChaptersAsync();
             _directoryService.CopyFilesToDirectory(
                 chapterImages.Select(s => _directoryService.FileSystem.Path.Join(_directoryService.CoverImageDirectory, s)), outputTempDir);
+
+            var volumeImages = await _unitOfWork.VolumeRepository.GetCoverImagesForLockedVolumesAsync();
+            _directoryService.CopyFilesToDirectory(
+                volumeImages.Select(s => _directoryService.FileSystem.Path.Join(_directoryService.CoverImageDirectory, s)), outputTempDir);
+
+            var libraryImages = await _unitOfWork.LibraryRepository.GetAllCoverImagesAsync();
+            _directoryService.CopyFilesToDirectory(
+                libraryImages.Select(s => _directoryService.FileSystem.Path.Join(_directoryService.CoverImageDirectory, s)), outputTempDir);
+
+            var readingListImages = await _unitOfWork.ReadingListRepository.GetAllCoverImagesAsync();
+            _directoryService.CopyFilesToDirectory(
+                readingListImages.Select(s => _directoryService.FileSystem.Path.Join(_directoryService.CoverImageDirectory, s)), outputTempDir);
         }
         catch (IOException)
         {
@@ -189,10 +225,30 @@ public class BackupService : IBackupService
         }
     }
 
-    private async Task SendProgress(float progress)
+    private void CopyThemesToBackupDirectory(string tempDirectory)
     {
-        await _messageHub.Clients.All.SendAsync(SignalREvents.BackupDatabaseProgress,
-            MessageFactory.BackupDatabaseProgressEvent(progress));
+        var outputTempDir = Path.Join(tempDirectory, "themes");
+        _directoryService.ExistOrCreate(outputTempDir);
+
+        try
+        {
+            _directoryService.CopyDirectoryToDirectory(_directoryService.SiteThemeDirectory, outputTempDir);
+        }
+        catch (IOException)
+        {
+            // Swallow exception.
+        }
+
+        if (!_directoryService.GetFiles(outputTempDir, searchOption: SearchOption.AllDirectories).Any())
+        {
+            _directoryService.ClearAndDeleteDirectory(outputTempDir);
+        }
+    }
+
+    private async Task SendProgress(float progress, string subtitle)
+    {
+        await _eventHub.SendMessageAsync(MessageFactory.NotificationProgress,
+            MessageFactory.BackupDatabaseProgressEvent(progress, subtitle));
     }
 
 }

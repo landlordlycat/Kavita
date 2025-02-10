@@ -2,9 +2,11 @@
 using System.Linq;
 using API.Entities;
 using API.Entities.Enums;
+using API.Extensions;
 using API.Services.Tasks.Scanner;
 
 namespace API.Helpers;
+#nullable enable
 
 public static class SeriesHelper
 {
@@ -17,8 +19,9 @@ public static class SeriesHelper
     public static bool FindSeries(Series series, ParsedSeries parsedInfoKey)
     {
         return (series.NormalizedName.Equals(parsedInfoKey.NormalizedName)
-                || Parser.Parser.Normalize(series.OriginalName).Equals(parsedInfoKey.NormalizedName)
-                || Parser.Parser.Normalize(series.LocalizedName).Equals(parsedInfoKey.NormalizedName))
+                || (series.LocalizedName != null && series.LocalizedName.ToNormalized().Equals(parsedInfoKey.NormalizedName))
+                || (series.OriginalName != null && series.OriginalName.ToNormalized().Equals(parsedInfoKey.NormalizedName))
+                )
                && (series.Format == parsedInfoKey.Format || series.Format == MangaFormat.Unknown);
     }
 

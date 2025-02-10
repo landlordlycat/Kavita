@@ -15,56 +15,48 @@ ProgressEnd()
 
 Build()
 {
-	  local RID="$1"
+	local RID="$1"
 
-    ProgressStart 'Build for $RID'
+    ProgressStart "Build for $RID"
 
     slnFile=Kavita.sln
 
-    dotnet clean $slnFile -c Debug
     dotnet clean $slnFile -c Release
 
 	  dotnet msbuild -restore $slnFile -p:Configuration=Release -p:Platform="Any CPU" -p:RuntimeIdentifiers=$RID
 
-    ProgressEnd 'Build for $RID'
+    ProgressEnd "Build for $RID"
 }
 
 BuildUI()
 {
     ProgressStart 'Building UI'
-    cd ../Kavita-webui/ || exit
-    npm install
-    npm run prod
-    cd ../Kavita/ || exit
-    ProgressEnd 'Building UI'
-
-    ProgressStart 'Building UI'
     echo 'Removing old wwwroot'
     rm -rf API/wwwroot/*
-    cd ../Kavita-webui/ || exit
+    cd UI/Web/ || exit
     echo 'Installing web dependencies'
-    npm install
+    npm install --legacy-peer-deps
     echo 'Building UI'
     npm run prod
     echo 'Copying back to Kavita wwwroot'
-    cp -r dist/* ../Kavita/API/wwwroot
-    cd ../Kavita/ || exit
+    mkdir -p ../../API/wwwroot
+    cp -R dist/browser/* ../../API/wwwroot
+    cd ../../ || exit
     ProgressEnd 'Building UI'
 }
 
 Package()
 {
-    local framework="$1"
-    local runtime="$2"
+    local runtime="$1"
     local lOutputFolder=../_output/"$runtime"/Kavita
 
-    ProgressStart "Creating $runtime Package for $framework"
+    ProgressStart "Creating $runtime Package"
 
     # TODO: Use no-restore? Because Build should have already done it for us
     echo "Building"
     cd API
-    echo dotnet publish -c Release --no-restore --self-contained --runtime $runtime -o "$lOutputFolder" --framework $framework
-    dotnet publish -c Release --no-restore --self-contained --runtime $runtime -o "$lOutputFolder" --framework $framework
+    echo dotnet publish -c Release --no-restore --self-contained --runtime $runtime -o "$lOutputFolder"
+    dotnet publish -c Release --no-restore --self-contained --runtime $runtime -o "$lOutputFolder"
 
     echo "Copying Install information"
     cp ../INSTALL.txt "$lOutputFolder"/README.txt
@@ -79,7 +71,7 @@ Package()
     cd ../$outputFolder/"$runtime"/
     tar -czvf ../kavita-$runtime.tar.gz Kavita
 
-    ProgressEnd "Creating $runtime Package for $framework"
+    ProgressEnd "Creating $runtime Package"
 
 }
 
@@ -94,17 +86,17 @@ BuildUI
 
 #Build for x64
 Build "linux-x64"
-Package "net6.0" "linux-x64"
+Package "linux-x64"
 cd "$dir"
 
 #Build for arm
 Build "linux-arm"
-Package "net6.0" "linux-arm"
+Package "linux-arm"
 cd "$dir"
 
 #Build for arm64
 Build "linux-arm64"
-Package "net6.0" "linux-arm64"
+Package "linux-arm64"
 cd "$dir"
 
 #Builds Docker images

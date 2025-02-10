@@ -1,36 +1,33 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using API.Entities;
 using Microsoft.AspNetCore.StaticFiles;
+using MimeTypes;
 
 namespace API.Services;
 
 public interface IDownloadService
 {
-    Task<(byte[], string, string)> GetFirstFileDownload(IEnumerable<MangaFile> files);
+    Tuple<string, string, string> GetFirstFileDownload(IEnumerable<MangaFile> files);
     string GetContentTypeFromFile(string filepath);
 }
 public class DownloadService : IDownloadService
 {
-    private readonly IDirectoryService _directoryService;
     private readonly FileExtensionContentTypeProvider _fileTypeProvider = new FileExtensionContentTypeProvider();
 
-    public DownloadService(IDirectoryService directoryService)
-    {
-        _directoryService = directoryService;
-    }
+    public DownloadService() { }
 
     /// <summary>
     /// Downloads the first file in the file enumerable for download
     /// </summary>
     /// <param name="files"></param>
     /// <returns></returns>
-    public async Task<(byte[], string, string)> GetFirstFileDownload(IEnumerable<MangaFile> files)
+    public Tuple<string, string, string> GetFirstFileDownload(IEnumerable<MangaFile> files)
     {
         var firstFile = files.Select(c => c.FilePath).First();
-        return (await _directoryService.ReadFileAsync(firstFile), GetContentTypeFromFile(firstFile), Path.GetFileName(firstFile));
+        return Tuple.Create(firstFile, GetContentTypeFromFile(firstFile), Path.GetFileName(firstFile));
     }
 
     public string GetContentTypeFromFile(string filepath)
@@ -38,19 +35,31 @@ public class DownloadService : IDownloadService
         // Figures out what the content type should be based on the file name.
         if (!_fileTypeProvider.TryGetContentType(filepath, out var contentType))
         {
+            if (contentType == null)
+            {
+                // Get extension
+                contentType = Path.GetExtension(filepath);
+            }
+
             contentType = Path.GetExtension(filepath).ToLowerInvariant() switch
             {
-                ".cbz" => "application/zip",
-                ".cbr" => "application/vnd.rar",
-                ".cb7" => "application/x-compressed",
+                ".cbz" => "application/x-cbz",
+                ".cbr" => "application/x-cbr",
+                ".cb7" => "application/x-cb7",
+                ".cbt" => "application/x-cbt",
                 ".epub" => "application/epub+zip",
                 ".7z" => "application/x-7z-compressed",
                 ".7zip" => "application/x-7z-compressed",
+                ".rar" => "application/vnd.rar",
+                ".zip" => "application/zip",
+                ".tar.gz" => "application/gzip",
                 ".pdf" => "application/pdf",
-                _ => contentType
+                _ => MimeTypeMap.GetMimeType(contentType)
             };
         }
 
-        return contentType;
+        return contentType!;
     }
+
+
 }

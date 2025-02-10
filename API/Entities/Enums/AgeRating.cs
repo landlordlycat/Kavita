@@ -8,6 +8,11 @@ namespace API.Entities.Enums;
 /// <remarks>Based on ComicInfo.xml v2.1 https://github.com/anansi-project/comicinfo/blob/main/drafts/v2.1/ComicInfo.xsd</remarks>
 public enum AgeRating
 {
+    /// <summary>
+    /// This is for Age Restriction for Restricted Profiles
+    /// </summary>
+    [Description("Not Applicable")]
+    NotApplicable = -1,
     [Description("Unknown")]
     Unknown = 0,
     [Description("Rating Pending")]
@@ -21,12 +26,13 @@ public enum AgeRating
     [Description("Everyone 10+")]
     Everyone10Plus = 5,
     [Description("PG")]
+    // ReSharper disable once InconsistentNaming
     PG = 6,
     [Description("Kids to Adults")]
     KidsToAdults = 7,
     [Description("Teen")]
     Teen = 8,
-    [Description("MA 15+")]
+    [Description("MA15+")]
     Mature15Plus = 9,
     [Description("Mature 17+")]
     Mature17Plus = 10,

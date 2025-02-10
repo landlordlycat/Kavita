@@ -2,10 +2,11 @@
 using API.Entities;
 using API.Entities.Enums;
 using API.Extensions;
-using API.Parser;
 using API.Services.Tasks.Scanner;
+using API.Services.Tasks.Scanner.Parser;
 
 namespace API.Helpers;
+#nullable enable
 
 public static class ParserInfoHelpers
 {
@@ -17,20 +18,19 @@ public static class ParserInfoHelpers
     /// <param name="parsedSeries"></param>
     /// <returns></returns>
     public static bool SeriesHasMatchingParserInfoFormat(Series series,
-        Dictionary<ParsedSeries, List<ParserInfo>> parsedSeries)
+        Dictionary<ParsedSeries, IList<ParserInfo>> parsedSeries)
     {
         var format = MangaFormat.Unknown;
         foreach (var pSeries in parsedSeries.Keys)
         {
             var name = pSeries.Name;
-            var normalizedName = Parser.Parser.Normalize(name);
+            var normalizedName = name.ToNormalized();
 
-            //if (series.NameInParserInfo(pSeries.))
             if (normalizedName == series.NormalizedName ||
-                normalizedName == Parser.Parser.Normalize(series.Name) ||
+                normalizedName == series.Name.ToNormalized() ||
                 name == series.Name || name == series.LocalizedName ||
                 name == series.OriginalName ||
-                normalizedName == Parser.Parser.Normalize(series.OriginalName))
+                normalizedName == series.OriginalName?.ToNormalized())
             {
                 format = pSeries.Format;
                 if (format == series.Format)
@@ -40,7 +40,7 @@ public static class ParserInfoHelpers
             }
         }
 
-        if (series.Format == MangaFormat.Unknown && format != MangaFormat.Unknown)
+        if (series.Format == MangaFormat.Unknown)
         {
             return true;
         }

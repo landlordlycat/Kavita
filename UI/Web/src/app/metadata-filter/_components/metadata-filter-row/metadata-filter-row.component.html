@@ -1,0 +1,76 @@
+<ng-container *transloco="let t; read: 'metadata-filter-row'">
+    <form [formGroup]="formGroup">
+        <div class="row g-0">
+            <div class="col-md-3 me-2 col-10 mb-2">
+                <select class="form-select me-2" formControlName="input">
+                  @for (field of availableFields; track field) {
+                    <option [value]="field">{{field | filterField}}</option>
+                  }
+                </select>
+            </div>
+
+            <div class="col-md-2 me-2 col-10 mb-2">
+                <select class="col-auto form-select" formControlName="comparison">
+                  @for(comparison of validComparisons$ | async; track comparison) {
+                    <option [value]="comparison">{{comparison | filterComparison}}</option>
+                  }
+                </select>
+            </div>
+
+            <div class="col-md-4 col-10 mb-2">
+              @if (formGroup.get('comparison')?.value !== FilterComparison.IsEmpty) {
+                @if (predicateType$ | async; as predicateType) {
+                  @switch (predicateType) {
+                    @case (PredicateType.Text) {
+                      <input type="text" class="form-control  me-2" autocomplete="true" formControlName="filterValue">
+                    }
+                    @case (PredicateType.Number) {
+                      <input type="number" inputmode="numeric" class="form-control me-2" formControlName="filterValue" min="0">
+                    }
+                    @case (PredicateType.Boolean) {
+                      <input type="checkbox" class="form-check-input mt-2 me-2" style="font-size: 1.5rem" formControlName="filterValue">
+                    }
+                    @case (PredicateType.Date) {
+                      <div class="input-group">
+                        <input
+                          class="form-control"
+                          placeholder="yyyy-mm-dd"
+                          name="dp"
+                          formControlName="filterValue"
+                          (dateSelect)="onDateSelect($event)"
+                          (blur)="updateIfDateFilled()"
+                          ngbDatepicker
+                          #d="ngbDatepicker"
+                        />
+                        <button class="btn btn-outline-secondary fa-solid fa-calendar-days" (click)="d.toggle()" type="button"></button>
+                      </div>
+                    }
+                    @case (PredicateType.Dropdown) {
+                      @if (dropdownOptions$ | async; as opts) {
+                        <select2 [data]="opts"
+                                 formControlName="filterValue"
+                                 [hideSelectedItems]="true"
+                                 [multiple]="MultipleDropdownAllowed"
+                                 [infiniteScroll]="true"
+                                 [resettable]="true">
+                        </select2>
+                      }
+                    }
+                  }
+                }
+              }
+            </div>
+
+            <div class="col pt-2 ms-2">
+              @if (UiLabel !== null) {
+                <span class="text-muted">{{t(UiLabel.unit)}}</span>
+                @if (UiLabel.tooltip) {
+                  <i class="fa fa-info-circle ms-1" aria-hidden="true" [ngbTooltip]="t(UiLabel.tooltip)"></i>
+                }
+              }
+            </div>
+
+            <ng-content #removeBtn></ng-content>
+        </div>
+    </form>
+</ng-container>
