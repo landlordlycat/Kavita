@@ -19,6 +19,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NetVips;
 
+
 namespace API.Services.Tasks.Metadata;
 #nullable enable
 
@@ -28,8 +29,8 @@ public interface ICoverDbService
     Task<string> DownloadPublisherImageAsync(string publisherName, EncodeFormat encodeFormat);
     Task<string?> DownloadPersonImageAsync(Person person, EncodeFormat encodeFormat);
     Task<string?> DownloadPersonImageAsync(Person person, EncodeFormat encodeFormat, string url);
-    Task SetPersonCoverByUrl(Person person, string url, bool fromBase64 = true);
-    Task SetSeriesCoverByUrl(Series series, string url, bool fromBase64 = true);
+    Task SetPersonCoverByUrl(Person person, string url, bool fromBase64 = true, bool checkNoImagePlaceholder = false);
+    Task SetSeriesCoverByUrl(Series series, string url, bool fromBase64 = true, bool chooseBetterImage = false);
 }
 
 
@@ -461,12 +462,38 @@ public class CoverDbService : ICoverDbService
         return null;
     }
 
-
-    public async Task SetPersonCoverByUrl(Person person, string url, bool fromBase64 = true)
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="person"></param>
+    /// <param name="url"></param>
+    /// <param name="fromBase64"></param>
+    /// <param name="checkNoImagePlaceholder">Will check against all known null image placeholders to avoid writing it</param>
+    public async Task SetPersonCoverByUrl(Person person, string url, bool fromBase64 = true, bool checkNoImagePlaceholder = false)
     {
+        // TODO: Refactor checkNoImagePlaceholder bool to an action that evaluates how to process Image
         if (!string.IsNullOrEmpty(url))
         {
             var filePath = await CreateThumbnail(url, $"{ImageService.GetPersonFormat(person.Id)}", fromBase64);
+
+            // Additional check to see if downloaded image is similar and we have a higher resolution
+            if (checkNoImagePlaceholder)
+            {
+                var matchRating = Path.Join(_directoryService.AssetsDirectory, "anilist-no-image-placeholder.jpg").GetSimilarity(Path.Join(_directoryService.CoverImageDirectory, filePath))!;
+
+                if (matchRating >= 0.9f)
+                {
+                    if (string.IsNullOrEmpty(person.CoverImage))
+                    {
+                        filePath = null;
+                    }
+                    else
+                    {
+                        filePath = Path.GetFileName(Path.Join(_directoryService.CoverImageDirectory, person.CoverImage));
+                    }
+
+                }
+            }
 
             if (!string.IsNullOrEmpty(filePath))
             {
@@ -498,7 +525,8 @@ public class CoverDbService : ICoverDbService
     /// <param name="series"></param>
     /// <param name="url"></param>
     /// <param name="fromBase64"></param>
-    public async Task SetSeriesCoverByUrl(Series series, string url, bool fromBase64 = true)
+    /// <param name="chooseBetterImage">If images are similar, will choose the higher quality image</param>
+    public async Task SetSeriesCoverByUrl(Series series, string url, bool fromBase64 = true, bool chooseBetterImage = false)
     {
         if (!string.IsNullOrEmpty(url))
         {
@@ -506,6 +534,13 @@ public class CoverDbService : ICoverDbService
 
             if (!string.IsNullOrEmpty(filePath))
             {
+                // Additional check to see if downloaded image is similar and we have a higher resolution
+                if (chooseBetterImage)
+                {
+                    var betterImage = Path.Join(_directoryService.CoverImageDirectory, series.CoverImage).GetBetterImage(Path.Join(_directoryService.CoverImageDirectory, filePath))!;
+                    filePath = Path.GetFileName(betterImage);
+                }
+
                 series.CoverImage = filePath;
                 series.CoverImageLocked = true;
                 _imageService.UpdateColorScape(series);
@@ -540,6 +575,6 @@ public class CoverDbService : ICoverDbService
                 filename, encodeFormat, coverImageSize.GetDimensions().Width);
         }
 
-        return  await DownloadImageFromUrl(filename, encodeFormat, url);
+        return await DownloadImageFromUrl(filename, encodeFormat, url);
     }
 }

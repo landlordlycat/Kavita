@@ -67,7 +67,7 @@ public partial class VersionUpdaterService : IVersionUpdaterService
 
     [GeneratedRegex(@"^\n*(.*?)\n+#{1,2}\s", RegexOptions.Singleline)]
     private static partial Regex BlogPartRegex();
-    private static string _cacheFilePath;
+    private readonly string _cacheFilePath;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(1);
 
     public VersionUpdaterService(ILogger<VersionUpdaterService> logger, IEventHub eventHub, IDirectoryService directoryService)
@@ -131,6 +131,7 @@ public partial class VersionUpdaterService : IVersionUpdaterService
                     Theme = sections.TryGetValue("Theme", out var theme) ? theme : [],
                     Developer = sections.TryGetValue("Developer", out var developer) ? developer : [],
                     Api = sections.TryGetValue("Api", out var api) ? api : [],
+                    FeatureRequests = sections.TryGetValue("Feature Requests", out var frs) ? frs : [],
                     BlogPart = _markdown.Transform(blogPart.Trim()),
                     UpdateBody = _markdown.Transform(prInfo.Body.Trim())
                 };
@@ -305,7 +306,7 @@ public partial class VersionUpdaterService : IVersionUpdaterService
         return updateDtos;
     }
 
-    private static async Task<IList<UpdateNotificationDto>?> TryGetCachedReleases()
+    private async Task<IList<UpdateNotificationDto>?> TryGetCachedReleases()
     {
         if (!File.Exists(_cacheFilePath)) return null;
 
@@ -376,6 +377,7 @@ public partial class VersionUpdaterService : IVersionUpdaterService
             Theme = parsedSections.TryGetValue("Theme", out var theme) ? theme : [],
             Developer = parsedSections.TryGetValue("Developer", out var developer) ? developer : [],
             Api = parsedSections.TryGetValue("Api", out var api) ? api : [],
+            FeatureRequests = parsedSections.TryGetValue("Feature Requests", out var frs) ? frs : [],
             BlogPart = blogPart
         };
     }
@@ -492,7 +494,7 @@ public partial class VersionUpdaterService : IVersionUpdaterService
         return item;
     }
 
-    sealed class PullRequestInfo
+    private sealed class PullRequestInfo
     {
         public required string Title { get; init; }
         public required string Body { get; init; }
@@ -501,25 +503,25 @@ public partial class VersionUpdaterService : IVersionUpdaterService
         public required int Number { get; init; }
     }
 
-    sealed class CommitInfo
+    private sealed class CommitInfo
     {
         public required string Sha { get; init; }
         public required CommitDetail Commit { get; init; }
         public required string Html_Url { get; init; }
     }
 
-    sealed class CommitDetail
+    private sealed class CommitDetail
     {
         public required string Message { get; init; }
         public required CommitAuthor Author { get; init; }
     }
 
-    sealed class CommitAuthor
+    private sealed class CommitAuthor
     {
         public required string Date { get; init; }
     }
 
-    sealed class NightlyInfo
+    private sealed class NightlyInfo
     {
         public required string Version { get; init; }
         public required int PrNumber { get; init; }

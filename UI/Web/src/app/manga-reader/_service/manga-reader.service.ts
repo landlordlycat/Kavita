@@ -6,12 +6,11 @@ import { ChapterInfo } from '../_models/chapter-info';
 import { DimensionMap } from '../_models/file-dimension';
 import { FITTING_OPTION } from '../_models/reader-enums';
 import { BookmarkInfo } from 'src/app/_models/manga-reader/bookmark-info';
-import {ReaderMode} from "../../_models/preferences/reader-mode";
 
 @Injectable({
   providedIn: 'root'
 })
-export class ManagaReaderService {
+export class MangaReaderService {
 
   private pageDimensions: DimensionMap = {};
   private pairs: {[key: number]: number} = {};
@@ -168,7 +167,7 @@ export class ManagaReaderService {
       }
 
       // Boost score if width is small (≤ 800px, common in webtoons)
-      if (info.width <= 800) {
+      if (info.width <= 750) {
         score += 0.5; // Adjust weight as needed
       }
 
