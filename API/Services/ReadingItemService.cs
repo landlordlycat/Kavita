@@ -1,17 +1,18 @@
 ﻿using System;
 using API.Data.Metadata;
 using API.Entities.Enums;
-using API.Parser;
+using API.Services.Tasks.Scanner.Parser;
+using Microsoft.Extensions.Logging;
 
 namespace API.Services;
+#nullable enable
 
 public interface IReadingItemService
 {
-    ComicInfo GetComicInfo(string filePath);
     int GetNumberOfPages(string filePath, MangaFormat format);
-    string GetCoverImage(string filePath, string fileName, MangaFormat format);
+    string GetCoverImage(string filePath, string fileName, MangaFormat format, EncodeFormat encodeFormat, CoverImageSize size = CoverImageSize.Default);
     void Extract(string fileFilePath, string targetDirectory, MangaFormat format, int imageCount = 1);
-    ParserInfo Parse(string path, string rootPath, LibraryType type);
+    ParserInfo? ParseFile(string path, string rootPath, string libraryRoot, LibraryType type);
 }
 
 public class ReadingItemService : IReadingItemService
@@ -20,36 +21,74 @@ public class ReadingItemService : IReadingItemService
     private readonly IBookService _bookService;
     private readonly IImageService _imageService;
     private readonly IDirectoryService _directoryService;
-    private readonly DefaultParser _defaultParser;
+    private readonly ILogger<ReadingItemService> _logger;
+    private readonly BasicParser _basicParser;
+    private readonly ComicVineParser _comicVineParser;
+    private readonly ImageParser _imageParser;
+    private readonly BookParser _bookParser;
+    private readonly PdfParser _pdfParser;
 
-    public ReadingItemService(IArchiveService archiveService, IBookService bookService, IImageService imageService, IDirectoryService directoryService)
+    public ReadingItemService(IArchiveService archiveService, IBookService bookService, IImageService imageService,
+        IDirectoryService directoryService, ILogger<ReadingItemService> logger)
     {
         _archiveService = archiveService;
         _bookService = bookService;
         _imageService = imageService;
         _directoryService = directoryService;
+        _logger = logger;
 
-        _defaultParser = new DefaultParser(directoryService);
+        _imageParser = new ImageParser(directoryService);
+        _basicParser = new BasicParser(directoryService, _imageParser);
+        _bookParser = new BookParser(directoryService, bookService, _basicParser);
+        _comicVineParser = new ComicVineParser(directoryService);
+        _pdfParser = new PdfParser(directoryService);
+
     }
 
     /// <summary>
-    /// Gets the ComicInfo for the file if it exists. Null otherewise.
+    /// Gets the ComicInfo for the file if it exists. Null otherwise.
     /// </summary>
     /// <param name="filePath">Fully qualified path of file</param>
     /// <returns></returns>
-    public ComicInfo? GetComicInfo(string filePath)
+    private ComicInfo? GetComicInfo(string filePath)
     {
-        if (Parser.Parser.IsEpub(filePath))
+        if (Parser.IsEpub(filePath) || Parser.IsPdf(filePath))
         {
             return _bookService.GetComicInfo(filePath);
         }
 
-        if (Parser.Parser.IsComicInfoExtension(filePath))
+        if (Parser.IsComicInfoExtension(filePath))
         {
             return _archiveService.GetComicInfo(filePath);
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Processes files found during a library scan.
+    /// </summary>
+    /// <param name="path">Path of a file</param>
+    /// <param name="rootPath"></param>
+    /// <param name="type">Library type to determine parsing to perform</param>
+    public ParserInfo? ParseFile(string path, string rootPath, string libraryRoot, LibraryType type)
+    {
+        try
+        {
+            var info = Parse(path, rootPath, libraryRoot, type);
+            if (info == null)
+            {
+                _logger.LogError("Unable to parse any meaningful information out of file {FilePath}", path);
+                return null;
+            }
+
+            return info;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "There was an exception when parsing file {FilePath}", path);
+            return null;
+        }
     }
 
     /// <summary>
@@ -60,6 +99,7 @@ public class ReadingItemService : IReadingItemService
     /// <returns></returns>
     public int GetNumberOfPages(string filePath, MangaFormat format)
     {
+
         switch (format)
         {
             case MangaFormat.Archive:
@@ -81,19 +121,20 @@ public class ReadingItemService : IReadingItemService
         }
     }
 
-    public string GetCoverImage(string filePath, string fileName, MangaFormat format)
+    public string GetCoverImage(string filePath, string fileName, MangaFormat format, EncodeFormat encodeFormat, CoverImageSize size = CoverImageSize.Default)
     {
         if (string.IsNullOrEmpty(filePath) || string.IsNullOrEmpty(fileName))
         {
             return string.Empty;
         }
 
+
         return format switch
         {
-            MangaFormat.Epub => _bookService.GetCoverImage(filePath, fileName, _directoryService.CoverImageDirectory),
-            MangaFormat.Archive => _archiveService.GetCoverImage(filePath, fileName, _directoryService.CoverImageDirectory),
-            MangaFormat.Image => _imageService.GetCoverImage(filePath, fileName, _directoryService.CoverImageDirectory),
-            MangaFormat.Pdf => _bookService.GetCoverImage(filePath, fileName, _directoryService.CoverImageDirectory),
+            MangaFormat.Epub => _bookService.GetCoverImage(filePath, fileName, _directoryService.CoverImageDirectory, encodeFormat, size),
+            MangaFormat.Archive => _archiveService.GetCoverImage(filePath, fileName, _directoryService.CoverImageDirectory, encodeFormat, size),
+            MangaFormat.Image => _imageService.GetCoverImage(filePath, fileName, _directoryService.CoverImageDirectory, encodeFormat, size),
+            MangaFormat.Pdf => _bookService.GetCoverImage(filePath, fileName, _directoryService.CoverImageDirectory, encodeFormat, size),
             _ => string.Empty
         };
     }
@@ -110,14 +151,14 @@ public class ReadingItemService : IReadingItemService
     {
         switch (format)
         {
-            case MangaFormat.Pdf:
-                _bookService.ExtractPdfImages(fileFilePath, targetDirectory);
-                break;
             case MangaFormat.Archive:
                 _archiveService.ExtractArchive(fileFilePath, targetDirectory);
                 break;
             case MangaFormat.Image:
                 _imageService.ExtractImages(fileFilePath, targetDirectory, imageCount);
+                break;
+            case MangaFormat.Pdf:
+                _bookService.ExtractPdfImages(fileFilePath, targetDirectory);
                 break;
             case MangaFormat.Unknown:
             case MangaFormat.Epub:
@@ -134,8 +175,29 @@ public class ReadingItemService : IReadingItemService
     /// <param name="rootPath"></param>
     /// <param name="type"></param>
     /// <returns></returns>
-    public ParserInfo Parse(string path, string rootPath, LibraryType type)
+    private ParserInfo? Parse(string path, string rootPath, string libraryRoot, LibraryType type)
     {
-        return Parser.Parser.IsEpub(path) ? _bookService.ParseInfo(path) : _defaultParser.Parse(path, rootPath, type);
+        if (_comicVineParser.IsApplicable(path, type))
+        {
+            return _comicVineParser.Parse(path, rootPath, libraryRoot, type, GetComicInfo(path));
+        }
+        if (_imageParser.IsApplicable(path, type))
+        {
+            return _imageParser.Parse(path, rootPath, libraryRoot, type, GetComicInfo(path));
+        }
+        if (_bookParser.IsApplicable(path, type))
+        {
+            return _bookParser.Parse(path, rootPath, libraryRoot, type, GetComicInfo(path));
+        }
+        if (_pdfParser.IsApplicable(path, type))
+        {
+            return _pdfParser.Parse(path, rootPath, libraryRoot, type, GetComicInfo(path));
+        }
+        if (_basicParser.IsApplicable(path, type))
+        {
+            return _basicParser.Parse(path, rootPath, libraryRoot, type, GetComicInfo(path));
+        }
+
+        return null;
     }
 }

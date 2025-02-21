@@ -1,11 +1,6 @@
-﻿using System.Collections.Generic;
-using API.DTOs.CollectionTags;
+﻿namespace API.DTOs;
 
-namespace API.DTOs
+public class UpdateSeriesMetadataDto
 {
-    public class UpdateSeriesMetadataDto
-    {
-        public SeriesMetadataDto SeriesMetadata { get; set; }
-        public ICollection<CollectionTagDto> Tags { get; set; }
-    }
+    public SeriesMetadataDto SeriesMetadata { get; set; } = null!;
 }

@@ -1,352 +1,328 @@
 ﻿using System;
 using System.IO;
-using System.Linq;
 using System.Text.Json;
 using Kavita.Common.EnvironmentInfo;
+using Kavita.Common.Helpers;
 using Microsoft.Extensions.Hosting;
 
-namespace Kavita.Common
+namespace Kavita.Common;
+
+public static class Configuration
 {
-    public static class Configuration
+    public const string DefaultIpAddresses = "0.0.0.0,::";
+    public const string DefaultBaseUrl = "/";
+    public const int DefaultHttpPort = 5000;
+    public const int DefaultTimeOutSecs = 90;
+    public const long DefaultCacheMemory = 75;
+    private static readonly string AppSettingsFilename = Path.Join("config", GetAppSettingFilename());
+
+    public static string KavitaPlusApiUrl = "https://plus.kavitareader.com";
+    public static string StatsApiUrl = "https://stats.kavitareader.com";
+
+    public static int Port
     {
-        public static readonly string AppSettingsFilename = Path.Join("config", GetAppSettingFilename());
+        get => GetPort(GetAppSettingFilename());
+        set => SetPort(GetAppSettingFilename(), value);
+    }
 
-        public static string Branch
+    public static string IpAddresses
+    {
+        get => GetIpAddresses(GetAppSettingFilename());
+        set => SetIpAddresses(GetAppSettingFilename(), value);
+    }
+
+    public static string JwtToken
+    {
+        get => GetJwtToken(GetAppSettingFilename());
+        set => SetJwtToken(GetAppSettingFilename(), value);
+    }
+
+    public static string BaseUrl
+    {
+        get => GetBaseUrl(GetAppSettingFilename());
+        set => SetBaseUrl(GetAppSettingFilename(), value);
+    }
+
+    public static long CacheSize
+    {
+        get => GetCacheSize(GetAppSettingFilename());
+        set => SetCacheSize(GetAppSettingFilename(), value);
+    }
+
+    public static bool AllowIFraming => GetAllowIFraming(GetAppSettingFilename());
+
+    private static string GetAppSettingFilename()
+    {
+        if (!string.IsNullOrEmpty(AppSettingsFilename))
         {
-            get => GetBranch(GetAppSettingFilename());
-            set => SetBranch(GetAppSettingFilename(), value);
+            return AppSettingsFilename;
         }
 
-        public static int Port
+        var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+        var isDevelopment = environment == Environments.Development;
+        return "appsettings" + (isDevelopment ? ".Development" : string.Empty) + ".json";
+    }
+
+    #region JWT Token
+
+    private static string GetJwtToken(string filePath)
+    {
+        try
         {
-            get => GetPort(GetAppSettingFilename());
-            set => SetPort(GetAppSettingFilename(), value);
+            var json = File.ReadAllText(filePath);
+            var jsonObj = JsonSerializer.Deserialize<AppSettings>(json);
+            return jsonObj.TokenKey;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error reading app settings: " + ex.Message);
         }
 
-        public static string JwtToken
+        return string.Empty;
+    }
+
+    private static void SetJwtToken(string filePath, string token)
+    {
+        try
         {
-            get => GetJwtToken(GetAppSettingFilename());
-            set => SetJwtToken(GetAppSettingFilename(), value);
+            var json = File.ReadAllText(filePath);
+            var jsonObj = JsonSerializer.Deserialize<AppSettings>(json);
+            jsonObj.TokenKey = token;
+            json = JsonSerializer.Serialize(jsonObj, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(filePath, json);
+        }
+        catch (Exception)
+        {
+            /* Swallow exception */
+        }
+    }
+
+    public static bool CheckIfJwtTokenSet()
+    {
+        try
+        {
+            return !GetJwtToken(GetAppSettingFilename()).StartsWith("super secret unguessable key");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error writing app settings: " + ex.Message);
         }
 
-        public static string LogLevel
+        return false;
+    }
+
+    #endregion
+
+    #region Port
+
+    private static void SetPort(string filePath, int port)
+    {
+        if (OsInfo.IsDocker)
         {
-            get => GetLogLevel(GetAppSettingFilename());
-            set => SetLogLevel(GetAppSettingFilename(), value);
+            return;
         }
 
-        public static string LogPath
+        try
         {
-            get => GetLoggingFile(GetAppSettingFilename());
-            set => SetLoggingFile(GetAppSettingFilename(), value);
+            var json = File.ReadAllText(filePath);
+            var jsonObj = JsonSerializer.Deserialize<AppSettings>(json);
+            jsonObj.Port = port;
+            json = JsonSerializer.Serialize(jsonObj, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(filePath, json);
+        }
+        catch (Exception)
+        {
+            /* Swallow Exception */
+        }
+    }
+
+    private static int GetPort(string filePath)
+    {
+        if (OsInfo.IsDocker)
+        {
+            return DefaultHttpPort;
         }
 
-        public static string DatabasePath
+        try
         {
-            get => GetDatabasePath(GetAppSettingFilename());
-            set => SetDatabasePath(GetAppSettingFilename(), value);
+            var json = File.ReadAllText(filePath);
+            var jsonObj = JsonSerializer.Deserialize<AppSettings>(json);
+            return jsonObj.Port;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error writing app settings: " + ex.Message);
         }
 
-        private static string GetAppSettingFilename()
-        {
-            if (!string.IsNullOrEmpty(AppSettingsFilename))
-            {
-                return AppSettingsFilename;
-            }
+        return DefaultHttpPort;
+    }
 
-            var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
-            var isDevelopment = environment == Environments.Development;
-            return "appsettings" + (isDevelopment ? ".Development" : string.Empty) + ".json";
+    #endregion
+
+    #region Ip Addresses
+
+    private static void SetIpAddresses(string filePath, string ipAddresses)
+    {
+        if (OsInfo.IsDocker)
+        {
+            return;
         }
 
-        #region JWT Token
-
-        private static string GetJwtToken(string filePath)
+        try
         {
-            try
-            {
-                var json = File.ReadAllText(filePath);
-                var jsonObj = JsonSerializer.Deserialize<dynamic>(json);
-                const string key = "TokenKey";
+            var json = File.ReadAllText(filePath);
+            var jsonObj = JsonSerializer.Deserialize<AppSettings>(json);
+            jsonObj.IpAddresses = ipAddresses;
+            json = JsonSerializer.Serialize(jsonObj, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(filePath, json);
+        }
+        catch (Exception)
+        {
+            /* Swallow Exception */
+        }
+    }
 
-                if (jsonObj.TryGetProperty(key, out JsonElement tokenElement))
-                {
-                    return tokenElement.GetString();
-                }
-
-                return string.Empty;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Error reading app settings: " + ex.Message);
-            }
-
+    private static string GetIpAddresses(string filePath)
+    {
+        if (OsInfo.IsDocker)
+        {
             return string.Empty;
         }
 
-        private static void SetJwtToken(string filePath, string token)
+        try
         {
-            try
-            {
-                var currentToken = GetJwtToken(filePath);
-                var json = File.ReadAllText(filePath)
-                    .Replace("\"TokenKey\": \"" + currentToken, "\"TokenKey\": \"" + token);
-                File.WriteAllText(filePath, json);
-            }
-            catch (Exception)
-            {
-                /* Swallow exception */
-            }
+            var json = File.ReadAllText(filePath);
+            var jsonObj = JsonSerializer.Deserialize<AppSettings>(json);
+            return jsonObj.IpAddresses;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error writing app settings: " + ex.Message);
         }
 
-        public static bool CheckIfJwtTokenSet()
+        return string.Empty;
+    }
+    #endregion
+
+    #region BaseUrl
+    private static string GetBaseUrl(string filePath)
+    {
+        try
         {
-            try
-            {
-                return GetJwtToken(GetAppSettingFilename()) != "super secret unguessable key";
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Error writing app settings: " + ex.Message);
-            }
+            var json = File.ReadAllText(filePath);
+            var jsonObj = JsonSerializer.Deserialize<AppSettings>(json);
 
-            return false;
-        }
-
-        #endregion
-
-        #region Port
-
-        private static void SetPort(string filePath, int port)
-        {
-            if (new OsInfo(Array.Empty<IOsVersionAdapter>()).IsDocker)
+            var baseUrl = jsonObj.BaseUrl;
+            if (!string.IsNullOrEmpty(baseUrl))
             {
-                return;
-            }
+                baseUrl = UrlHelper.EnsureStartsWithSlash(baseUrl);
+                baseUrl = UrlHelper.EnsureEndsWithSlash(baseUrl);
 
-            try
-            {
-                var currentPort = GetPort(filePath);
-                var json = File.ReadAllText(filePath).Replace("\"Port\": " + currentPort, "\"Port\": " + port);
-                File.WriteAllText(filePath, json);
-            }
-            catch (Exception)
-            {
-                /* Swallow Exception */
+                return baseUrl;
             }
         }
-
-        private static int GetPort(string filePath)
+        catch (Exception ex)
         {
-            const int defaultPort = 5000;
-            if (new OsInfo(Array.Empty<IOsVersionAdapter>()).IsDocker)
-            {
-                return defaultPort;
-            }
-
-            try
-            {
-                var json = File.ReadAllText(filePath);
-                var jsonObj = JsonSerializer.Deserialize<dynamic>(json);
-                const string key = "Port";
-
-                if (jsonObj.TryGetProperty(key, out JsonElement tokenElement))
-                {
-                    return tokenElement.GetInt32();
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Error writing app settings: " + ex.Message);
-            }
-
-            return defaultPort;
+            Console.WriteLine("Error reading app settings: " + ex.Message);
         }
 
-        #endregion
+        return DefaultBaseUrl;
+    }
 
-        #region LogLevel
+    private static void SetBaseUrl(string filePath, string value)
+    {
 
-        private static void SetLogLevel(string filePath, string logLevel)
+        var baseUrl = !value.StartsWith('/')
+            ? $"/{value}"
+            : value;
+
+        baseUrl = !baseUrl.EndsWith('/')
+                    ? $"{baseUrl}/"
+                    : baseUrl;
+
+        try
         {
-            try
-            {
-                var currentLevel = GetLogLevel(filePath);
-                var json = File.ReadAllText(filePath)
-                    .Replace($"\"Default\": \"{currentLevel}\"", $"\"Default\": \"{logLevel}\"");
-                File.WriteAllText(filePath, json);
-            }
-            catch (Exception)
-            {
-                /* Swallow Exception */
-            }
+            var json = File.ReadAllText(filePath);
+            var jsonObj = JsonSerializer.Deserialize<AppSettings>(json);
+            jsonObj.BaseUrl = baseUrl;
+            json = JsonSerializer.Serialize(jsonObj, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(filePath, json);
+        }
+        catch (Exception)
+        {
+            /* Swallow exception */
+        }
+    }
+    #endregion
+
+    #region CacheSize
+    private static void SetCacheSize(string filePath, long cache)
+    {
+        if (cache <= 0) return;
+        try
+        {
+            var json = File.ReadAllText(filePath);
+            var jsonObj = JsonSerializer.Deserialize<AppSettings>(json);
+            jsonObj.Cache = cache;
+            json = JsonSerializer.Serialize(jsonObj, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(filePath, json);
+        }
+        catch (Exception)
+        {
+            /* Swallow Exception */
+        }
+    }
+
+    private static long GetCacheSize(string filePath)
+    {
+        try
+        {
+            var json = File.ReadAllText(filePath);
+            var jsonObj = JsonSerializer.Deserialize<AppSettings>(json);
+
+            return jsonObj.Cache == 0 ? DefaultCacheMemory : jsonObj.Cache;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error writing app settings: " + ex.Message);
         }
 
-        private static string GetLogLevel(string filePath)
+        return DefaultCacheMemory;
+    }
+
+
+    #endregion
+
+    #region AllowIFraming
+    private static bool GetAllowIFraming(string filePath)
+    {
+        try
         {
-            try
-            {
-                var json = File.ReadAllText(filePath);
-                var jsonObj = JsonSerializer.Deserialize<dynamic>(json);
-
-                if (jsonObj.TryGetProperty("Logging", out JsonElement tokenElement))
-                {
-                    foreach (var property in tokenElement.EnumerateObject())
-                    {
-                        if (!property.Name.Equals("LogLevel")) continue;
-                        foreach (var logProperty in property.Value.EnumerateObject().Where(logProperty => logProperty.Name.Equals("Default")))
-                        {
-                            return logProperty.Value.GetString();
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Error writing app settings: " + ex.Message);
-            }
-
-            return "Information";
+            var json = File.ReadAllText(filePath);
+            var jsonObj = JsonSerializer.Deserialize<AppSettings>(json);
+            return jsonObj.AllowIFraming;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error reading app settings: " + ex.Message);
         }
 
-        #endregion
+        return false;
+    }
+    #endregion
 
-        private static string GetBranch(string filePath)
-        {
-            const string defaultBranch = "main";
-
-            try
-            {
-                var json = File.ReadAllText(filePath);
-                var jsonObj = JsonSerializer.Deserialize<dynamic>(json);
-                const string key = "Branch";
-
-                if (jsonObj.TryGetProperty(key, out JsonElement tokenElement))
-                {
-                    return tokenElement.GetString();
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Error reading app settings: " + ex.Message);
-            }
-
-            return defaultBranch;
-        }
-
-        private static void SetBranch(string filePath, string updatedBranch)
-        {
-            try
-            {
-                var currentBranch = GetBranch(filePath);
-                var json = File.ReadAllText(filePath)
-                    .Replace("\"Branch\": " + currentBranch, "\"Branch\": " + updatedBranch);
-                File.WriteAllText(filePath, json);
-            }
-            catch (Exception)
-            {
-                /* Swallow Exception */
-            }
-        }
-
-        private static string GetLoggingFile(string filePath)
-        {
-            const string defaultFile = "config/logs/kavita.log";
-
-            try
-            {
-                var json = File.ReadAllText(filePath);
-                var jsonObj = JsonSerializer.Deserialize<dynamic>(json);
-
-                if (jsonObj.TryGetProperty("Logging", out JsonElement tokenElement))
-                {
-                    foreach (var property in tokenElement.EnumerateObject())
-                    {
-                        if (!property.Name.Equals("File")) continue;
-                        foreach (var logProperty in property.Value.EnumerateObject())
-                        {
-                            if (logProperty.Name.Equals("Path"))
-                            {
-                                return logProperty.Value.GetString();
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Error writing app settings: " + ex.Message);
-            }
-
-            return defaultFile;
-        }
-
-        /// <summary>
-        /// This should NEVER be called except by <see cref="MigrateConfigFiles"/>
-        /// </summary>
-        /// <param name="filePath"></param>
-        /// <param name="directory"></param>
-        private static void SetLoggingFile(string filePath, string directory)
-        {
-            try
-            {
-                var currentFile = GetLoggingFile(filePath);
-                var json = File.ReadAllText(filePath)
-                    .Replace("\"Path\": \"" + currentFile + "\"", "\"Path\": \"" + directory + "\"");
-                File.WriteAllText(filePath, json);
-            }
-            catch (Exception ex)
-            {
-                /* Swallow Exception */
-                Console.WriteLine(ex);
-            }
-        }
-
-        private static string GetDatabasePath(string filePath)
-        {
-            const string defaultFile = "config/kavita.db";
-
-            try
-            {
-                var json = File.ReadAllText(filePath);
-                var jsonObj = JsonSerializer.Deserialize<dynamic>(json);
-
-                if (jsonObj.TryGetProperty("ConnectionStrings", out JsonElement tokenElement))
-                {
-                    foreach (var property in tokenElement.EnumerateObject())
-                    {
-                        if (!property.Name.Equals("DefaultConnection")) continue;
-                        return property.Value.GetString();
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Error writing app settings: " + ex.Message);
-            }
-
-            return defaultFile;
-        }
-
-        /// <summary>
-        /// This should NEVER be called except by <see cref="MigrateConfigFiles"/>
-        /// </summary>
-        /// <param name="filePath"></param>
-        /// <param name="updatedPath"></param>
-        private static void SetDatabasePath(string filePath, string updatedPath)
-        {
-            try
-            {
-                var existingString = GetDatabasePath(filePath);
-                var json = File.ReadAllText(filePath)
-                    .Replace(existingString,
-                        "Data source=" + updatedPath);
-                File.WriteAllText(filePath, json);
-            }
-            catch (Exception)
-            {
-                /* Swallow Exception */
-            }
-        }
+    private sealed class AppSettings
+    {
+        public string TokenKey { get; set; }
+        // ReSharper disable once MemberHidesStaticFromOuterClass
+        public int Port { get; set; } = DefaultHttpPort;
+        // ReSharper disable once MemberHidesStaticFromOuterClass
+        public string IpAddresses { get; set; } = string.Empty;
+        // ReSharper disable once MemberHidesStaticFromOuterClass
+        public string BaseUrl { get; set; }
+        // ReSharper disable once MemberHidesStaticFromOuterClass
+        public long Cache { get; set; } = DefaultCacheMemory;
+        // ReSharper disable once MemberHidesStaticFromOuterClass
+        public bool AllowIFraming { get; set; } = false;
     }
 }

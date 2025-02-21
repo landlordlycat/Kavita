@@ -1,4 +1,7 @@
-﻿using System.Linq;
+﻿using System.Collections.Generic;
+using System.Linq;
+using API.Data.Misc;
+using API.Entities.Enums;
 using API.Extensions;
 using Xunit;
 
@@ -71,10 +74,10 @@ public class EnumerableExtensionsTests
             new[] {@"F:\/Anime_Series_Pelis/MANGA/Mangahere (EN)\Kirara Fantasia\_Ch.001\001.jpg", @"F:\/Anime_Series_Pelis/MANGA/Mangahere (EN)\Kirara Fantasia\_Ch.001\002.jpg"},
             new[] {@"F:\/Anime_Series_Pelis/MANGA/Mangahere (EN)\Kirara Fantasia\_Ch.001\001.jpg", @"F:\/Anime_Series_Pelis/MANGA/Mangahere (EN)\Kirara Fantasia\_Ch.001\002.jpg"}
         )]
-    [InlineData(
-        new[] {"01/001.jpg", "001.jpg"},
-        new[] {"001.jpg", "01/001.jpg"}
-    )]
+        [InlineData(
+            new[] {"01/001.jpg", "001.jpg"},
+            new[] {"001.jpg", "01/001.jpg"}
+        )]
         public void TestNaturalSort(string[] input, string[] expected)
         {
             Assert.Equal(expected, input.OrderByNatural(x => x).ToArray());
@@ -131,5 +134,34 @@ public class EnumerableExtensionsTests
                 Assert.Equal(s, expected[i]);
                 i++;
             }
+        }
+
+        [Theory]
+        [InlineData(true, 2)]
+        [InlineData(false, 1)]
+        public void RestrictAgainstAgeRestriction_ShouldRestrictEverythingAboveTeen(bool includeUnknowns, int expectedCount)
+        {
+            var items = new List<RecentlyAddedSeries>()
+            {
+                new RecentlyAddedSeries()
+                {
+                    AgeRating = AgeRating.Teen,
+                },
+                new RecentlyAddedSeries()
+                {
+                    AgeRating = AgeRating.Unknown,
+                },
+                new RecentlyAddedSeries()
+                {
+                    AgeRating = AgeRating.X18Plus,
+                },
+            };
+
+            var filtered = items.RestrictAgainstAgeRestriction(new AgeRestriction()
+            {
+                AgeRating = AgeRating.Teen,
+                IncludeUnknowns = includeUnknowns
+            });
+            Assert.Equal(expectedCount, filtered.Count());
         }
 }

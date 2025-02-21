@@ -1,6 +1,19 @@
-.read-more-link {
-    font-weight: bold;
-    text-decoration: none;
-    color: black;
-    cursor: pointer;
+@import "../../../theme/variables";
+
+.blur-text {
+  color: transparent;
+  text-shadow: 0 0 5px var(--body-text-color);
+}
+
+.read-more-cont {
+  font-size: 0.8rem;
+
+  div {
+    word-break: break-word;
+    max-width: 120ch;
+
+    @media (max-width: $grid-breakpoints-sm) {
+      max-width: 50ch;
+    }
+  }
 }

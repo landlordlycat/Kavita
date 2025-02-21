@@ -1,10 +1,11 @@
 ﻿using System;
 
-namespace API.Entities.Interfaces
+namespace API.Entities.Interfaces;
+
+public interface IEntityDate
 {
-    public interface IEntityDate
-    {
-        DateTime Created { get; set; }
-        DateTime LastModified { get; set; }
-    }
+    DateTime Created { get; set; }
+    DateTime CreatedUtc { get; set; }
+    DateTime LastModified { get; set; }
+    DateTime LastModifiedUtc { get; set; }
 }

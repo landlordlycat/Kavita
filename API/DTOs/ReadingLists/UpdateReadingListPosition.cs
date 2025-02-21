@@ -1,10 +1,14 @@
-﻿namespace API.DTOs.ReadingLists
+﻿using System.ComponentModel.DataAnnotations;
+
+namespace API.DTOs.ReadingLists;
+
+/// <summary>
+/// DTO for moving a reading list item to another position within the same list
+/// </summary>
+public class UpdateReadingListPosition
 {
-    public class UpdateReadingListPosition
-    {
-        public int ReadingListId { get; set; }
-        public int ReadingListItemId { get; set; }
-        public int FromPosition { get; set; }
-        public int ToPosition { get; set; }
-    }
+    [Required] public int ReadingListId { get; set; }
+    [Required] public int ReadingListItemId { get; set; }
+    public int FromPosition { get; set; }
+    [Required] public int ToPosition { get; set; }
 }

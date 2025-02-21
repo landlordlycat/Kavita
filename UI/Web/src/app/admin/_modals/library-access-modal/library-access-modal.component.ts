@@ -1,31 +1,37 @@
-import { Component, Input, OnInit } from '@angular/core';
-import { FormBuilder } from '@angular/forms';
-import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
-import { SelectionModel } from 'src/app/typeahead/typeahead.component';
-import { Library } from 'src/app/_models/library';
-import { Member } from 'src/app/_models/member';
-import { LibraryService } from 'src/app/_services/library.service';
+import {ChangeDetectionStrategy, ChangeDetectorRef, Component, inject, Input, OnInit} from '@angular/core';
+import {NgbActiveModal} from '@ng-bootstrap/ng-bootstrap';
+import {Library} from 'src/app/_models/library/library';
+import {Member} from 'src/app/_models/auth/member';
+import {LibraryService} from 'src/app/_services/library.service';
+import {NgFor, NgIf} from '@angular/common';
+import {FormsModule, ReactiveFormsModule} from '@angular/forms';
+import {TranslocoDirective} from "@jsverse/transloco";
+import {SelectionModel} from "../../../typeahead/_models/selection-model";
 
 @Component({
   selector: 'app-library-access-modal',
   templateUrl: './library-access-modal.component.html',
-  styleUrls: ['./library-access-modal.component.scss']
+  styleUrls: ['./library-access-modal.component.scss'],
+  standalone: true,
+  imports: [ReactiveFormsModule, FormsModule, NgFor, NgIf, TranslocoDirective],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class LibraryAccessModalComponent implements OnInit {
+
+  protected readonly modal = inject(NgbActiveModal);
+  private readonly cdRef = inject(ChangeDetectorRef);
+  private readonly libraryService = inject(LibraryService);
 
   @Input() member: Member | undefined;
   allLibraries: Library[] = [];
   selectedLibraries: Array<{selected: boolean, data: Library}> = [];
   selections!: SelectionModel<Library>;
   selectAll: boolean = false;
-  isLoading: boolean = false;
 
   get hasSomeSelected() {
-    console.log(this.selections != null && this.selections.hasSomeSelected());
     return this.selections != null && this.selections.hasSomeSelected();
   }
 
-  constructor(public modal: NgbActiveModal, private libraryService: LibraryService, private fb: FormBuilder) { }
 
   ngOnInit(): void {
     this.libraryService.getLibraries().subscribe(libs => {
@@ -51,8 +57,7 @@ export class LibraryAccessModalComponent implements OnInit {
 
   setupSelections() {
     this.selections = new SelectionModel<Library>(false, this.allLibraries);
-    this.isLoading = false;
-      
+
     // If a member is passed in, then auto-select their libraries
     if (this.member !== undefined) {
       this.member.libraries.forEach(lib => {
@@ -60,6 +65,7 @@ export class LibraryAccessModalComponent implements OnInit {
       });
       this.selectAll = this.selections.selected().length === this.allLibraries.length;
     }
+    this.cdRef.markForCheck();
   }
 
   reset() {
@@ -69,6 +75,7 @@ export class LibraryAccessModalComponent implements OnInit {
   toggleAll() {
     this.selectAll = !this.selectAll;
     this.allLibraries.forEach(s => this.selections.toggle(s, this.selectAll));
+    this.cdRef.markForCheck();
   }
 
   handleSelection(item: Library) {
@@ -79,6 +86,7 @@ export class LibraryAccessModalComponent implements OnInit {
     } else if (numberOfSelected == this.selectedLibraries.length) {
       this.selectAll = true;
     }
+    this.cdRef.markForCheck();
   }
 
 }

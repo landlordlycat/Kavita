@@ -1,0 +1,62 @@
+.review-card {
+  max-width: 320px;
+  max-height: 130px;
+  height: 130px;
+  width: 320px;
+}
+
+.profile-image {
+    font-size: 1.2rem;
+    padding: 20px;
+}
+
+.my-review {
+    position: absolute;
+    z-index: 20;
+    top: 38px;
+    left: 38px;
+}
+
+.fa-star {
+  color: var(--review-card-star-color);
+}
+
+.card-text {
+    font-size: 14px;
+}
+
+.card-title {
+    overflow: hidden;
+    width: 235px;
+    word-break: break-all;
+    height: 20px;
+}
+
+.card-text.no-images {
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+.no-images img {
+    display: none;
+}
+
+.card-footer {
+    font-size: 13px;
+    display: flex;
+    max-width: 319px;
+    justify-content: space-between;
+    margin: 0 auto;
+
+    & > * {
+        margin: 0 5px;
+        display: inline-flex;
+    }
+}
+
+.card-body {
+    display: block;
+    visibility: visible;
+    min-height: 93.5px;
+    max-height: 93.5px;
+}

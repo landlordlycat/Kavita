@@ -1,0 +1,8 @@
+<ng-container *transloco="let t; read: 'download-indicator'">
+  <span class="download" *ngIf="download$ | async as download">
+    <app-circular-loader [currentValue]="download.progress"></app-circular-loader>
+    <span class="visually-hidden" role="status">
+      {{t('progress',{percentage: download.progress})}}
+    </span>
+  </span>
+</ng-container>

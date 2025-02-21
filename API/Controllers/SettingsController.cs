@@ -1,264 +1,610 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
+using System.Net;
 using System.Threading.Tasks;
 using API.Data;
+using API.DTOs.Email;
+using API.DTOs.KavitaPlus.Metadata;
 using API.DTOs.Settings;
+using API.Entities;
 using API.Entities.Enums;
 using API.Extensions;
 using API.Helpers.Converters;
+using API.Logging;
 using API.Services;
+using API.Services.Tasks.Scanner;
 using AutoMapper;
+using Cronos;
+using Hangfire;
 using Kavita.Common;
+using Kavita.Common.EnvironmentInfo;
 using Kavita.Common.Extensions;
+using Kavita.Common.Helpers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
+using Swashbuckle.AspNetCore.Annotations;
 
-namespace API.Controllers
+namespace API.Controllers;
+
+#nullable enable
+
+public class SettingsController : BaseApiController
 {
-    public class SettingsController : BaseApiController
+    private readonly ILogger<SettingsController> _logger;
+    private readonly IUnitOfWork _unitOfWork;
+    private readonly ITaskScheduler _taskScheduler;
+    private readonly IDirectoryService _directoryService;
+    private readonly IMapper _mapper;
+    private readonly IEmailService _emailService;
+    private readonly ILibraryWatcher _libraryWatcher;
+    private readonly ILocalizationService _localizationService;
+
+    public SettingsController(ILogger<SettingsController> logger, IUnitOfWork unitOfWork, ITaskScheduler taskScheduler,
+        IDirectoryService directoryService, IMapper mapper, IEmailService emailService, ILibraryWatcher libraryWatcher,
+        ILocalizationService localizationService)
     {
-        private readonly ILogger<SettingsController> _logger;
-        private readonly IUnitOfWork _unitOfWork;
-        private readonly ITaskScheduler _taskScheduler;
-        private readonly IAccountService _accountService;
-        private readonly IDirectoryService _directoryService;
-        private readonly IMapper _mapper;
+        _logger = logger;
+        _unitOfWork = unitOfWork;
+        _taskScheduler = taskScheduler;
+        _directoryService = directoryService;
+        _mapper = mapper;
+        _emailService = emailService;
+        _libraryWatcher = libraryWatcher;
+        _localizationService = localizationService;
+    }
 
-        public SettingsController(ILogger<SettingsController> logger, IUnitOfWork unitOfWork, ITaskScheduler taskScheduler,
-            IAccountService accountService, IDirectoryService directoryService, IMapper mapper)
+    [HttpGet("base-url")]
+    public async Task<ActionResult<string>> GetBaseUrl()
+    {
+        var settingsDto = await _unitOfWork.SettingsRepository.GetSettingsDtoAsync();
+        return Ok(settingsDto.BaseUrl);
+    }
+
+    /// <summary>
+    /// Returns the server settings
+    /// </summary>
+    /// <returns></returns>
+    [Authorize(Policy = "RequireAdminRole")]
+    [HttpGet]
+    public async Task<ActionResult<ServerSettingDto>> GetSettings()
+    {
+        var settingsDto = await _unitOfWork.SettingsRepository.GetSettingsDtoAsync();
+        return Ok(settingsDto);
+    }
+
+    [Authorize(Policy = "RequireAdminRole")]
+    [HttpPost("reset")]
+    public async Task<ActionResult<ServerSettingDto>> ResetSettings()
+    {
+        _logger.LogInformation("{UserName} is resetting Server Settings", User.GetUsername());
+
+        return await UpdateSettings(_mapper.Map<ServerSettingDto>(Seed.DefaultSettings));
+    }
+
+    /// <summary>
+    /// Resets the IP Addresses
+    /// </summary>
+    /// <returns></returns>
+    [Authorize(Policy = "RequireAdminRole")]
+    [HttpPost("reset-ip-addresses")]
+    public async Task<ActionResult<ServerSettingDto>> ResetIpAddressesSettings()
+    {
+        _logger.LogInformation("{UserName} is resetting IP Addresses Setting", User.GetUsername());
+        var ipAddresses = await _unitOfWork.SettingsRepository.GetSettingAsync(ServerSettingKey.IpAddresses);
+        ipAddresses.Value = Configuration.DefaultIpAddresses;
+        _unitOfWork.SettingsRepository.Update(ipAddresses);
+
+        if (!await _unitOfWork.CommitAsync())
         {
-            _logger = logger;
-            _unitOfWork = unitOfWork;
-            _taskScheduler = taskScheduler;
-            _accountService = accountService;
-            _directoryService = directoryService;
-            _mapper = mapper;
+            await _unitOfWork.RollbackAsync();
         }
 
-        [AllowAnonymous]
-        [HttpGet("base-url")]
-        public async Task<ActionResult<string>> GetBaseUrl()
+        return Ok(await _unitOfWork.SettingsRepository.GetSettingsDtoAsync());
+    }
+
+    /// <summary>
+    /// Resets the Base url
+    /// </summary>
+    /// <returns></returns>
+    [Authorize(Policy = "RequireAdminRole")]
+    [HttpPost("reset-base-url")]
+    public async Task<ActionResult<ServerSettingDto>> ResetBaseUrlSettings()
+    {
+        _logger.LogInformation("{UserName} is resetting Base Url Setting", User.GetUsername());
+        var baseUrl = await _unitOfWork.SettingsRepository.GetSettingAsync(ServerSettingKey.BaseUrl);
+        baseUrl.Value = Configuration.DefaultBaseUrl;
+        _unitOfWork.SettingsRepository.Update(baseUrl);
+
+        if (!await _unitOfWork.CommitAsync())
         {
-            var settingsDto = await _unitOfWork.SettingsRepository.GetSettingsDtoAsync();
-            return Ok(settingsDto.BaseUrl);
+            await _unitOfWork.RollbackAsync();
         }
 
-        [Authorize(Policy = "RequireAdminRole")]
-        [HttpGet]
-        public async Task<ActionResult<ServerSettingDto>> GetSettings()
+        Configuration.BaseUrl = baseUrl.Value;
+        return Ok(await _unitOfWork.SettingsRepository.GetSettingsDtoAsync());
+    }
+
+    /// <summary>
+    /// Is the minimum information setup for Email to work
+    /// </summary>
+    /// <returns></returns>
+    [Authorize(Policy = "RequireAdminRole")]
+    [HttpGet("is-email-setup")]
+    public async Task<ActionResult<bool>> IsEmailSetup()
+    {
+        var settings = await _unitOfWork.SettingsRepository.GetSettingsDtoAsync();
+        return Ok(settings.IsEmailSetup());
+    }
+
+
+
+    [Authorize(Policy = "RequireAdminRole")]
+    [HttpPost]
+    public async Task<ActionResult<ServerSettingDto>> UpdateSettings(ServerSettingDto updateSettingsDto)
+    {
+        _logger.LogInformation("{UserName} is updating Server Settings", User.GetUsername());
+
+        // We do not allow CacheDirectory changes, so we will ignore.
+        var currentSettings = await _unitOfWork.SettingsRepository.GetSettingsAsync();
+        var updateBookmarks = false;
+        var originalBookmarkDirectory = _directoryService.BookmarkDirectory;
+
+        var bookmarkDirectory = updateSettingsDto.BookmarksDirectory;
+        if (!updateSettingsDto.BookmarksDirectory.EndsWith("bookmarks") &&
+            !updateSettingsDto.BookmarksDirectory.EndsWith("bookmarks/"))
         {
-            var settingsDto = await _unitOfWork.SettingsRepository.GetSettingsDtoAsync();
-            // TODO: Is this needed as it gets updated in the DB on startup
-            settingsDto.Port = Configuration.Port;
-            settingsDto.LoggingLevel = Configuration.LogLevel;
-            return Ok(settingsDto);
+            bookmarkDirectory =
+                _directoryService.FileSystem.Path.Join(updateSettingsDto.BookmarksDirectory, "bookmarks");
         }
 
-        [Authorize(Policy = "RequireAdminRole")]
-        [HttpPost("reset")]
-        public async Task<ActionResult<ServerSettingDto>> ResetSettings()
+        if (string.IsNullOrEmpty(updateSettingsDto.BookmarksDirectory))
         {
-            _logger.LogInformation("{UserName} is resetting Server Settings", User.GetUsername());
-
-            return await UpdateSettings(_mapper.Map<ServerSettingDto>(Seed.DefaultSettings));
+            bookmarkDirectory = _directoryService.BookmarkDirectory;
         }
 
-        [Authorize(Policy = "RequireAdminRole")]
-        [HttpPost]
-        public async Task<ActionResult<ServerSettingDto>> UpdateSettings(ServerSettingDto updateSettingsDto)
+        var updateTask = false;
+        foreach (var setting in currentSettings)
         {
-            _logger.LogInformation("{UserName}  is updating Server Settings", User.GetUsername());
-
-            if (updateSettingsDto.CacheDirectory.Equals(string.Empty))
+            if (setting.Key == ServerSettingKey.OnDeckProgressDays &&
+                updateSettingsDto.OnDeckProgressDays + string.Empty != setting.Value)
             {
-                return BadRequest("Cache Directory cannot be empty");
+                setting.Value = updateSettingsDto.OnDeckProgressDays + string.Empty;
+                _unitOfWork.SettingsRepository.Update(setting);
             }
 
-            if (!Directory.Exists(updateSettingsDto.CacheDirectory))
+            if (setting.Key == ServerSettingKey.OnDeckUpdateDays &&
+                updateSettingsDto.OnDeckUpdateDays + string.Empty != setting.Value)
             {
-                return BadRequest("Directory does not exist or is not accessible.");
+                setting.Value = updateSettingsDto.OnDeckUpdateDays + string.Empty;
+                _unitOfWork.SettingsRepository.Update(setting);
             }
 
-            // We do not allow CacheDirectory changes, so we will ignore.
-            var currentSettings = await _unitOfWork.SettingsRepository.GetSettingsAsync();
-            var updateAuthentication = false;
-            var updateBookmarks = false;
-            var originalBookmarkDirectory = _directoryService.BookmarkDirectory;
-
-            var bookmarkDirectory = updateSettingsDto.BookmarksDirectory;
-            if (!updateSettingsDto.BookmarksDirectory.EndsWith("bookmarks") &&
-                !updateSettingsDto.BookmarksDirectory.EndsWith("bookmarks/"))
+            if (setting.Key == ServerSettingKey.Port && updateSettingsDto.Port + string.Empty != setting.Value)
             {
-                bookmarkDirectory = _directoryService.FileSystem.Path.Join(updateSettingsDto.BookmarksDirectory, "bookmarks");
+                if (OsInfo.IsDocker) continue;
+                setting.Value = updateSettingsDto.Port + string.Empty;
+                // Port is managed in appSetting.json
+                Configuration.Port = updateSettingsDto.Port;
+                _unitOfWork.SettingsRepository.Update(setting);
             }
 
-            if (string.IsNullOrEmpty(updateSettingsDto.BookmarksDirectory))
+            if (setting.Key == ServerSettingKey.CacheSize &&
+                updateSettingsDto.CacheSize + string.Empty != setting.Value)
             {
-                bookmarkDirectory = _directoryService.BookmarkDirectory;
+                setting.Value = updateSettingsDto.CacheSize + string.Empty;
+                // CacheSize is managed in appSetting.json
+                Configuration.CacheSize = updateSettingsDto.CacheSize;
+                _unitOfWork.SettingsRepository.Update(setting);
             }
 
-            foreach (var setting in currentSettings)
+            updateTask = updateTask || UpdateSchedulingSettings(setting, updateSettingsDto);
+
+            UpdateEmailSettings(setting, updateSettingsDto);
+
+
+
+            if (setting.Key == ServerSettingKey.IpAddresses && updateSettingsDto.IpAddresses != setting.Value)
             {
-                if (setting.Key == ServerSettingKey.TaskBackup && updateSettingsDto.TaskBackup != setting.Value)
+                if (OsInfo.IsDocker) continue;
+                // Validate IP addresses
+                foreach (var ipAddress in updateSettingsDto.IpAddresses.Split(',',
+                             StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
                 {
-                    setting.Value = updateSettingsDto.TaskBackup;
-                    _unitOfWork.SettingsRepository.Update(setting);
-                }
-
-                if (setting.Key == ServerSettingKey.TaskScan && updateSettingsDto.TaskScan != setting.Value)
-                {
-                    setting.Value = updateSettingsDto.TaskScan;
-                    _unitOfWork.SettingsRepository.Update(setting);
-                }
-
-                if (setting.Key == ServerSettingKey.Port && updateSettingsDto.Port + string.Empty != setting.Value)
-                {
-                    setting.Value = updateSettingsDto.Port + string.Empty;
-                    // Port is managed in appSetting.json
-                    Configuration.Port = updateSettingsDto.Port;
-                    _unitOfWork.SettingsRepository.Update(setting);
-                }
-
-                if (setting.Key == ServerSettingKey.BaseUrl && updateSettingsDto.BaseUrl + string.Empty != setting.Value)
-                {
-                    var path = !updateSettingsDto.BaseUrl.StartsWith("/")
-                        ? $"/{updateSettingsDto.BaseUrl}"
-                        : updateSettingsDto.BaseUrl;
-                    path = !path.EndsWith("/")
-                        ? $"{path}/"
-                        : path;
-                    setting.Value = path;
-                    _unitOfWork.SettingsRepository.Update(setting);
-                }
-
-                if (setting.Key == ServerSettingKey.LoggingLevel && updateSettingsDto.LoggingLevel + string.Empty != setting.Value)
-                {
-                    setting.Value = updateSettingsDto.LoggingLevel + string.Empty;
-                    Configuration.LogLevel = updateSettingsDto.LoggingLevel;
-                    _unitOfWork.SettingsRepository.Update(setting);
-                }
-
-                if (setting.Key == ServerSettingKey.EnableOpds && updateSettingsDto.EnableOpds + string.Empty != setting.Value)
-                {
-                    setting.Value = updateSettingsDto.EnableOpds + string.Empty;
-                    _unitOfWork.SettingsRepository.Update(setting);
-                }
-
-                if (setting.Key == ServerSettingKey.BookmarkDirectory && bookmarkDirectory != setting.Value)
-                {
-                    // Validate new directory can be used
-                    if (!await _directoryService.CheckWriteAccess(bookmarkDirectory))
+                    if (!IPAddress.TryParse(ipAddress.Trim(), out _))
                     {
-                        return BadRequest("Bookmark Directory does not have correct permissions for Kavita to use");
-                    }
-
-                    originalBookmarkDirectory = setting.Value;
-                    // Normalize the path deliminators. Just to look nice in DB, no functionality
-                    setting.Value = _directoryService.FileSystem.Path.GetFullPath(bookmarkDirectory);
-                    _unitOfWork.SettingsRepository.Update(setting);
-                    updateBookmarks = true;
-
-                }
-
-                if (setting.Key == ServerSettingKey.EnableAuthentication && updateSettingsDto.EnableAuthentication + string.Empty != setting.Value)
-                {
-                    setting.Value = updateSettingsDto.EnableAuthentication + string.Empty;
-                    _unitOfWork.SettingsRepository.Update(setting);
-                    updateAuthentication = true;
-                }
-
-                if (setting.Key == ServerSettingKey.AllowStatCollection && updateSettingsDto.AllowStatCollection + string.Empty != setting.Value)
-                {
-                    setting.Value = updateSettingsDto.AllowStatCollection + string.Empty;
-                    _unitOfWork.SettingsRepository.Update(setting);
-                    if (!updateSettingsDto.AllowStatCollection)
-                    {
-                        _taskScheduler.CancelStatsTasks();
-                    }
-                    else
-                    {
-                        await _taskScheduler.ScheduleStatsTasks();
+                        return BadRequest(await _localizationService.Translate(User.GetUserId(), "ip-address-invalid",
+                            ipAddress));
                     }
                 }
+
+                setting.Value = updateSettingsDto.IpAddresses;
+                // IpAddresses is managed in appSetting.json
+                Configuration.IpAddresses = updateSettingsDto.IpAddresses;
+                _unitOfWork.SettingsRepository.Update(setting);
             }
 
-            if (!_unitOfWork.HasChanges()) return Ok(updateSettingsDto);
-
-            try
+            if (setting.Key == ServerSettingKey.BaseUrl && updateSettingsDto.BaseUrl + string.Empty != setting.Value)
             {
-                await _unitOfWork.CommitAsync();
-
-                if (updateAuthentication)
-                {
-                    var users = await _unitOfWork.UserRepository.GetNonAdminUsersAsync();
-                    foreach (var user in users)
-                    {
-                        var errors = await _accountService.ChangeUserPassword(user, AccountService.DefaultPassword);
-                        if (!errors.Any()) continue;
-
-                        await _unitOfWork.RollbackAsync();
-                        return BadRequest(errors);
-                    }
-
-                    _logger.LogInformation("Server authentication changed. Updated all non-admins to default password");
-                }
-
-                if (updateBookmarks)
-                {
-                    _directoryService.ExistOrCreate(bookmarkDirectory);
-                    _directoryService.CopyDirectoryToDirectory(originalBookmarkDirectory, bookmarkDirectory);
-                    _directoryService.ClearAndDeleteDirectory(originalBookmarkDirectory);
-                }
+                var path = !updateSettingsDto.BaseUrl.StartsWith('/')
+                    ? $"/{updateSettingsDto.BaseUrl}"
+                    : updateSettingsDto.BaseUrl;
+                path = !path.EndsWith('/')
+                    ? $"{path}/"
+                    : path;
+                setting.Value = path;
+                Configuration.BaseUrl = updateSettingsDto.BaseUrl;
+                _unitOfWork.SettingsRepository.Update(setting);
             }
-            catch (Exception ex)
+
+            if (setting.Key == ServerSettingKey.LoggingLevel &&
+                updateSettingsDto.LoggingLevel + string.Empty != setting.Value)
             {
-                _logger.LogError(ex, "There was an exception when updating server settings");
-                await _unitOfWork.RollbackAsync();
-                return BadRequest("There was a critical issue. Please try again.");
+                setting.Value = updateSettingsDto.LoggingLevel + string.Empty;
+                LogLevelOptions.SwitchLogLevel(updateSettingsDto.LoggingLevel);
+                _unitOfWork.SettingsRepository.Update(setting);
             }
 
+            if (setting.Key == ServerSettingKey.EnableOpds &&
+                updateSettingsDto.EnableOpds + string.Empty != setting.Value)
+            {
+                setting.Value = updateSettingsDto.EnableOpds + string.Empty;
+                _unitOfWork.SettingsRepository.Update(setting);
+            }
 
-            _logger.LogInformation("Server Settings updated");
-            await _taskScheduler.ScheduleTasks();
-            return Ok(updateSettingsDto);
+            if (setting.Key == ServerSettingKey.EncodeMediaAs &&
+                ((int)updateSettingsDto.EncodeMediaAs).ToString() != setting.Value)
+            {
+                setting.Value = ((int)updateSettingsDto.EncodeMediaAs).ToString();
+                _unitOfWork.SettingsRepository.Update(setting);
+            }
+
+            if (setting.Key == ServerSettingKey.CoverImageSize &&
+                ((int)updateSettingsDto.CoverImageSize).ToString() != setting.Value)
+            {
+                setting.Value = ((int)updateSettingsDto.CoverImageSize).ToString();
+                _unitOfWork.SettingsRepository.Update(setting);
+            }
+
+            if (setting.Key == ServerSettingKey.HostName && updateSettingsDto.HostName + string.Empty != setting.Value)
+            {
+                setting.Value = (updateSettingsDto.HostName + string.Empty).Trim();
+                setting.Value = UrlHelper.RemoveEndingSlash(setting.Value);
+                _unitOfWork.SettingsRepository.Update(setting);
+            }
+
+            if (setting.Key == ServerSettingKey.BookmarkDirectory && bookmarkDirectory != setting.Value)
+            {
+                // Validate new directory can be used
+                if (!await _directoryService.CheckWriteAccess(bookmarkDirectory))
+                {
+                    return BadRequest(
+                        await _localizationService.Translate(User.GetUserId(), "bookmark-dir-permissions"));
+                }
+
+                originalBookmarkDirectory = setting.Value;
+                // Normalize the path deliminators. Just to look nice in DB, no functionality
+                setting.Value = _directoryService.FileSystem.Path.GetFullPath(bookmarkDirectory);
+                _unitOfWork.SettingsRepository.Update(setting);
+                updateBookmarks = true;
+
+            }
+
+            if (setting.Key == ServerSettingKey.AllowStatCollection &&
+                updateSettingsDto.AllowStatCollection + string.Empty != setting.Value)
+            {
+                setting.Value = updateSettingsDto.AllowStatCollection + string.Empty;
+                _unitOfWork.SettingsRepository.Update(setting);
+            }
+
+            if (setting.Key == ServerSettingKey.TotalBackups &&
+                updateSettingsDto.TotalBackups + string.Empty != setting.Value)
+            {
+                if (updateSettingsDto.TotalBackups > 30 || updateSettingsDto.TotalBackups < 1)
+                {
+                    return BadRequest(await _localizationService.Translate(User.GetUserId(), "total-backups"));
+                }
+
+                setting.Value = updateSettingsDto.TotalBackups + string.Empty;
+                _unitOfWork.SettingsRepository.Update(setting);
+            }
+
+            if (setting.Key == ServerSettingKey.TotalLogs &&
+                updateSettingsDto.TotalLogs + string.Empty != setting.Value)
+            {
+                if (updateSettingsDto.TotalLogs > 30 || updateSettingsDto.TotalLogs < 1)
+                {
+                    return BadRequest(await _localizationService.Translate(User.GetUserId(), "total-logs"));
+                }
+
+                setting.Value = updateSettingsDto.TotalLogs + string.Empty;
+                _unitOfWork.SettingsRepository.Update(setting);
+            }
+
+            if (setting.Key == ServerSettingKey.EnableFolderWatching &&
+                updateSettingsDto.EnableFolderWatching + string.Empty != setting.Value)
+            {
+                setting.Value = updateSettingsDto.EnableFolderWatching + string.Empty;
+                _unitOfWork.SettingsRepository.Update(setting);
+            }
         }
 
-        [Authorize(Policy = "RequireAdminRole")]
-        [HttpGet("task-frequencies")]
-        public ActionResult<IEnumerable<string>> GetTaskFrequencies()
+        if (!_unitOfWork.HasChanges()) return Ok(updateSettingsDto);
+
+        try
         {
-            return Ok(CronConverter.Options);
+            await _unitOfWork.CommitAsync();
+
+            if (!updateSettingsDto.AllowStatCollection)
+            {
+                _taskScheduler.CancelStatsTasks();
+            }
+            else
+            {
+                await _taskScheduler.ScheduleStatsTasks();
+            }
+
+            if (updateBookmarks)
+            {
+                UpdateBookmarkDirectory(originalBookmarkDirectory, bookmarkDirectory);
+            }
+
+            if (updateTask)
+            {
+                BackgroundJob.Enqueue(() => _taskScheduler.ScheduleTasks());
+            }
+
+            if (updateSettingsDto.EnableFolderWatching)
+            {
+                BackgroundJob.Enqueue(() => _libraryWatcher.StartWatching());
+            }
+            else
+            {
+                BackgroundJob.Enqueue(() => _libraryWatcher.StopWatching());
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "There was an exception when updating server settings");
+            await _unitOfWork.RollbackAsync();
+            return BadRequest(await _localizationService.Translate(User.GetUserId(), "generic-error"));
         }
 
-        [Authorize(Policy = "RequireAdminRole")]
-        [HttpGet("library-types")]
-        public ActionResult<IEnumerable<string>> GetLibraryTypes()
+
+        _logger.LogInformation("Server Settings updated");
+        BackgroundJob.Enqueue(() => _taskScheduler.ScheduleTasks());
+
+        return Ok(updateSettingsDto);
+    }
+
+
+    private void UpdateBookmarkDirectory(string originalBookmarkDirectory, string bookmarkDirectory)
+    {
+        _directoryService.ExistOrCreate(bookmarkDirectory);
+        _directoryService.CopyDirectoryToDirectory(originalBookmarkDirectory, bookmarkDirectory);
+        _directoryService.ClearAndDeleteDirectory(originalBookmarkDirectory);
+    }
+
+    private bool UpdateSchedulingSettings(ServerSetting setting, ServerSettingDto updateSettingsDto)
+    {
+        if (setting.Key == ServerSettingKey.TaskBackup && updateSettingsDto.TaskBackup != setting.Value)
         {
-          return Ok(Enum.GetValues<LibraryType>().Select(t => t.ToDescription()));
+            setting.Value = updateSettingsDto.TaskBackup;
+            _unitOfWork.SettingsRepository.Update(setting);
+
+            return true;
         }
 
-        [Authorize(Policy = "RequireAdminRole")]
-        [HttpGet("log-levels")]
-        public ActionResult<IEnumerable<string>> GetLogLevels()
+        if (setting.Key == ServerSettingKey.TaskScan && updateSettingsDto.TaskScan != setting.Value)
         {
-            return Ok(new [] {"Trace", "Debug", "Information", "Warning", "Critical"});
+            setting.Value = updateSettingsDto.TaskScan;
+            _unitOfWork.SettingsRepository.Update(setting);
+            return true;
         }
 
-        [HttpGet("opds-enabled")]
-        public async Task<ActionResult<bool>> GetOpdsEnabled()
+        if (setting.Key == ServerSettingKey.TaskCleanup && updateSettingsDto.TaskCleanup != setting.Value)
         {
-            var settingsDto = await _unitOfWork.SettingsRepository.GetSettingsDtoAsync();
-            return Ok(settingsDto.EnableOpds);
+            setting.Value = updateSettingsDto.TaskCleanup;
+            _unitOfWork.SettingsRepository.Update(setting);
+            return true;
+        }
+        return false;
+    }
+
+    private void UpdateEmailSettings(ServerSetting setting, ServerSettingDto updateSettingsDto)
+    {
+        if (setting.Key == ServerSettingKey.EmailHost &&
+            updateSettingsDto.SmtpConfig.Host + string.Empty != setting.Value)
+        {
+            setting.Value = updateSettingsDto.SmtpConfig.Host + string.Empty;
+            _unitOfWork.SettingsRepository.Update(setting);
         }
 
-        [HttpGet("authentication-enabled")]
-        public async Task<ActionResult<bool>> GetAuthenticationEnabled()
+        if (setting.Key == ServerSettingKey.EmailPort &&
+            updateSettingsDto.SmtpConfig.Port + string.Empty != setting.Value)
         {
-            var settingsDto = await _unitOfWork.SettingsRepository.GetSettingsDtoAsync();
-            return Ok(settingsDto.EnableAuthentication);
+            setting.Value = updateSettingsDto.SmtpConfig.Port + string.Empty;
+            _unitOfWork.SettingsRepository.Update(setting);
         }
+
+        if (setting.Key == ServerSettingKey.EmailAuthPassword &&
+            updateSettingsDto.SmtpConfig.Password + string.Empty != setting.Value)
+        {
+            setting.Value = updateSettingsDto.SmtpConfig.Password + string.Empty;
+            _unitOfWork.SettingsRepository.Update(setting);
+        }
+
+        if (setting.Key == ServerSettingKey.EmailAuthUserName &&
+            updateSettingsDto.SmtpConfig.UserName + string.Empty != setting.Value)
+        {
+            setting.Value = updateSettingsDto.SmtpConfig.UserName + string.Empty;
+            _unitOfWork.SettingsRepository.Update(setting);
+        }
+
+        if (setting.Key == ServerSettingKey.EmailSenderAddress &&
+            updateSettingsDto.SmtpConfig.SenderAddress + string.Empty != setting.Value)
+        {
+            setting.Value = updateSettingsDto.SmtpConfig.SenderAddress + string.Empty;
+            _unitOfWork.SettingsRepository.Update(setting);
+        }
+
+        if (setting.Key == ServerSettingKey.EmailSenderDisplayName &&
+            updateSettingsDto.SmtpConfig.SenderDisplayName + string.Empty != setting.Value)
+        {
+            setting.Value = updateSettingsDto.SmtpConfig.SenderDisplayName + string.Empty;
+            _unitOfWork.SettingsRepository.Update(setting);
+        }
+
+        if (setting.Key == ServerSettingKey.EmailSizeLimit &&
+            updateSettingsDto.SmtpConfig.SizeLimit + string.Empty != setting.Value)
+        {
+            setting.Value = updateSettingsDto.SmtpConfig.SizeLimit + string.Empty;
+            _unitOfWork.SettingsRepository.Update(setting);
+        }
+
+        if (setting.Key == ServerSettingKey.EmailEnableSsl &&
+            updateSettingsDto.SmtpConfig.EnableSsl + string.Empty != setting.Value)
+        {
+            setting.Value = updateSettingsDto.SmtpConfig.EnableSsl + string.Empty;
+            _unitOfWork.SettingsRepository.Update(setting);
+        }
+
+        if (setting.Key == ServerSettingKey.EmailCustomizedTemplates &&
+            updateSettingsDto.SmtpConfig.CustomizedTemplates + string.Empty != setting.Value)
+        {
+            setting.Value = updateSettingsDto.SmtpConfig.CustomizedTemplates + string.Empty;
+            _unitOfWork.SettingsRepository.Update(setting);
+        }
+    }
+
+
+    /// <summary>
+    /// All values allowed for Task Scheduling APIs. A custom cron job is not included. Disabled is not applicable for Cleanup.
+    /// </summary>
+    /// <returns></returns>
+    [Authorize(Policy = "RequireAdminRole")]
+    [HttpGet("task-frequencies")]
+    public ActionResult<IEnumerable<string>> GetTaskFrequencies()
+    {
+        return Ok(CronConverter.Options);
+    }
+
+    [Authorize(Policy = "RequireAdminRole")]
+    [HttpGet("library-types")]
+    public ActionResult<IEnumerable<string>> GetLibraryTypes()
+    {
+        return Ok(Enum.GetValues<LibraryType>().Select(t => t.ToDescription()));
+    }
+
+    [Authorize(Policy = "RequireAdminRole")]
+    [HttpGet("log-levels")]
+    public ActionResult<IEnumerable<string>> GetLogLevels()
+    {
+        return Ok(new[] {"Trace", "Debug", "Information", "Warning", "Critical"});
+    }
+
+    [HttpGet("opds-enabled")]
+    public async Task<ActionResult<bool>> GetOpdsEnabled()
+    {
+        var settingsDto = await _unitOfWork.SettingsRepository.GetSettingsDtoAsync();
+        return Ok(settingsDto.EnableOpds);
+    }
+
+    /// <summary>
+    /// Is the cron expression valid for Kavita's scheduler
+    /// </summary>
+    /// <param name="cronExpression"></param>
+    /// <returns></returns>
+    [HttpGet("is-valid-cron")]
+    public ActionResult<bool> IsValidCron(string cronExpression)
+    {
+        // NOTE: This must match Hangfire's underlying cron system. Hangfire is unique
+        return Ok(CronHelper.IsValidCron(cronExpression));
+    }
+
+    /// <summary>
+    /// Sends a test email to see if email settings are hooked up correctly
+    /// </summary>
+    /// <returns></returns>
+    [Authorize(Policy = "RequireAdminRole")]
+    [HttpPost("test-email-url")]
+    public async Task<ActionResult<EmailTestResultDto>> TestEmailServiceUrl()
+    {
+        var user = await _unitOfWork.UserRepository.GetUserByIdAsync(User.GetUserId());
+        if (string.IsNullOrEmpty(user?.Email)) return BadRequest("Your account has no email on record. Cannot email.");
+        return Ok(await _emailService.SendTestEmail(user!.Email));
+    }
+
+    /// <summary>
+    /// Get the metadata settings for Kavita+ users.
+    /// </summary>
+    /// <returns></returns>
+    [Authorize(Policy = "RequireAdminRole")]
+    [HttpGet("metadata-settings")]
+    public async Task<ActionResult<MetadataSettingsDto>> GetMetadataSettings()
+    {
+        return Ok(await _unitOfWork.SettingsRepository.GetMetadataSettingDto());
+
+    }
+
+    /// <summary>
+    /// Update the metadata settings for Kavita+ users
+    /// </summary>
+    /// <param name="dto"></param>
+    /// <returns></returns>
+    [Authorize(Policy = "RequireAdminRole")]
+    [HttpPost("metadata-settings")]
+    public async Task<ActionResult<MetadataSettingsDto>> UpdateMetadataSettings(MetadataSettingsDto dto)
+    {
+        var existingMetadataSetting = await _unitOfWork.SettingsRepository.GetMetadataSettings();
+        existingMetadataSetting.Enabled = dto.Enabled;
+        existingMetadataSetting.EnableSummary = dto.EnableSummary;
+        existingMetadataSetting.EnableLocalizedName = dto.EnableLocalizedName;
+        existingMetadataSetting.EnablePublicationStatus = dto.EnablePublicationStatus;
+        existingMetadataSetting.EnableRelationships = dto.EnableRelationships;
+        existingMetadataSetting.EnablePeople = dto.EnablePeople;
+        existingMetadataSetting.EnableStartDate = dto.EnableStartDate;
+        existingMetadataSetting.EnableGenres = dto.EnableGenres;
+        existingMetadataSetting.EnableTags = dto.EnableTags;
+        existingMetadataSetting.FirstLastPeopleNaming = dto.FirstLastPeopleNaming;
+        existingMetadataSetting.EnableCoverImage = dto.EnableCoverImage;
+
+        existingMetadataSetting.AgeRatingMappings = dto.AgeRatingMappings ?? [];
+
+        existingMetadataSetting.Blacklist = dto.Blacklist.Where(s => !string.IsNullOrWhiteSpace(s)).DistinctBy(d => d.ToNormalized()).ToList() ?? [];
+        existingMetadataSetting.Whitelist = dto.Whitelist.Where(s => !string.IsNullOrWhiteSpace(s)).DistinctBy(d => d.ToNormalized()).ToList() ?? [];
+        existingMetadataSetting.Overrides = dto.Overrides.ToList() ?? [];
+        existingMetadataSetting.PersonRoles = dto.PersonRoles ?? [];
+
+        // Handle Field Mappings
+        if (dto.FieldMappings != null)
+        {
+            // Clear existing mappings
+            existingMetadataSetting.FieldMappings ??= [];
+            _unitOfWork.SettingsRepository.RemoveRange(existingMetadataSetting.FieldMappings);
+
+            existingMetadataSetting.FieldMappings.Clear();
+
+
+            // Add new mappings
+            foreach (var mappingDto in dto.FieldMappings)
+            {
+                existingMetadataSetting.FieldMappings.Add(new MetadataFieldMapping
+                {
+                    SourceType = mappingDto.SourceType,
+                    DestinationType = mappingDto.DestinationType,
+                    SourceValue = mappingDto.SourceValue,
+                    DestinationValue = mappingDto.DestinationValue,
+                    ExcludeFromSource = mappingDto.ExcludeFromSource
+                });
+            }
+        }
+
+        // Save changes
+        await _unitOfWork.CommitAsync();
+
+        // Return updated settings
+        return Ok(await _unitOfWork.SettingsRepository.GetMetadataSettingDto());
     }
 }

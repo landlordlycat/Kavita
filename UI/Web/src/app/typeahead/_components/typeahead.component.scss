@@ -1,0 +1,125 @@
+form {
+    position: relative;
+}
+
+.input-group {
+    flex-wrap: inherit;
+}
+
+input {
+    width: 15px;
+    opacity: 1px;
+    position: relative;
+    left: 4px;
+    border: none;
+}
+
+.lock-active {
+    > .input-group-text {
+        background-color: var(--primary-color);
+        color: white;
+    }
+}
+
+.close-offset {
+    right: 29px !important;
+    top: 29% !important;
+}
+
+.typeahead-input {
+    padding: 0px 6px;
+    display: inline-block;
+    width: 100%;
+    overflow: hidden;
+    position: relative;
+    z-index: 1;
+    box-sizing: border-box;
+    box-shadow: none;
+    border-radius: 4px;
+    cursor: text;
+    min-height: 38px;
+
+    background-color: var(--input-bg-color);
+    border: 1px solid var(--input-border-color);
+    color: var(--body-text-color);
+
+    &.disabled {
+        cursor: not-allowed !important;
+    }
+
+    input {
+        outline: 0 !important;
+        border-radius: .28571429rem;
+        display: inline-block !important;
+        padding: 0px !important;
+        min-height: 0px !important;
+        max-width: 100% !important;
+        margin: 0px !important;
+        text-indent: 0 !important;
+        line-height: inherit !important;
+        box-shadow: none !important;
+    }
+    input:empty {
+        padding-top: 6px !important;
+    }
+}
+
+.open .input-group-text {
+    border-bottom-left-radius: 0px;
+}
+
+.open .typeahead-input {
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+}
+
+.dropdown {
+    width: 100%;
+    min-width: 10rem;
+    background: var(--input-bg-color);
+    z-index: 1000;
+    border-radius: 4px;
+    margin-top: -1px;
+    border-top-left-radius: 0px;
+    border-top-right-radius: 0px;
+    position: absolute;
+    max-height: 400px;
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    .list-group {
+        border-top-left-radius: 0px;
+        border-top-right-radius: 0px;
+    }
+
+    .list-group-item {
+        padding: 5px 10px;
+        width: 100%;
+    }
+
+
+    li {
+        list-style: none;
+    }
+}
+
+
+.spinner-border {
+    position: absolute;
+    right: 10px;
+    margin: auto;
+    cursor: pointer;
+    top: 30%;
+}
+
+.results {
+    .list-group-item {
+        cursor: pointer;
+        border-left-color: var(--list-group-hover-text-color);
+        border-right-color: var(--list-group-hover-text-color);
+    }
+
+    .list-group-item:last-child {
+        border-bottom-color: var(--list-group-hover-text-color);
+    }
+}

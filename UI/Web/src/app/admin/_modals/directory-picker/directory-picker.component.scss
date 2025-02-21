@@ -13,3 +13,9 @@ $breadcrumb-divider: quote(">");
 .btn-outline-secondary {
     border: 1px solid #ced4da;
 }
+
+.disabled {
+    color: lightgrey !important;
+    cursor: not-allowed !important;
+    background-color: var(--error-color);
+}

@@ -1,28 +1,98 @@
-import { Component, EventEmitter, HostListener, Input, OnDestroy, OnInit, Output } from '@angular/core';
-import { ToastrService } from 'ngx-toastr';
-import { Observable, Subject } from 'rxjs';
-import { finalize, take, takeUntil, takeWhile } from 'rxjs/operators';
-import { Download } from 'src/app/shared/_models/download';
-import { DownloadService } from 'src/app/shared/_services/download.service';
+import {
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component, ContentChild, DestroyRef,
+  EventEmitter,
+  HostListener,
+  inject,
+  Input,
+  OnInit,
+  Output, TemplateRef
+} from '@angular/core';
+import { Observable } from 'rxjs';
+import { filter, map } from 'rxjs/operators';
+import { DownloadEvent, DownloadService } from 'src/app/shared/_services/download.service';
 import { UtilityService } from 'src/app/shared/_services/utility.service';
 import { Chapter } from 'src/app/_models/chapter';
-import { CollectionTag } from 'src/app/_models/collection-tag';
+import { UserCollection } from 'src/app/_models/collection-tag';
+import { UserProgressUpdateEvent } from 'src/app/_models/events/user-progress-update-event';
 import { MangaFormat } from 'src/app/_models/manga-format';
-import { PageBookmark } from 'src/app/_models/page-bookmark';
+import { PageBookmark } from 'src/app/_models/readers/page-bookmark';
 import { RecentlyAddedItem } from 'src/app/_models/recently-added-item';
 import { Series } from 'src/app/_models/series';
+import { User } from 'src/app/_models/user';
 import { Volume } from 'src/app/_models/volume';
-import { Action, ActionItem } from 'src/app/_services/action-factory.service';
+import { AccountService } from 'src/app/_services/account.service';
+import { Action, ActionFactoryService, ActionItem } from 'src/app/_services/action-factory.service';
 import { ImageService } from 'src/app/_services/image.service';
 import { LibraryService } from 'src/app/_services/library.service';
+import { EVENTS, MessageHubService } from 'src/app/_services/message-hub.service';
+import { ScrollService } from 'src/app/_services/scroll.service';
 import { BulkSelectionService } from '../bulk-selection.service';
+import {takeUntilDestroyed} from "@angular/core/rxjs-interop";
+import {ImageComponent} from "../../shared/image/image.component";
+import {NgbProgressbar, NgbTooltip} from "@ng-bootstrap/ng-bootstrap";
+import {DownloadIndicatorComponent} from "../download-indicator/download-indicator.component";
+import {FormsModule} from "@angular/forms";
+import {MangaFormatPipe} from "../../_pipes/manga-format.pipe";
+import {MangaFormatIconPipe} from "../../_pipes/manga-format-icon.pipe";
+import {SentenceCasePipe} from "../../_pipes/sentence-case.pipe";
+import {DecimalPipe, NgTemplateOutlet} from "@angular/common";
+import {RouterLink, RouterLinkActive} from "@angular/router";
+import {TranslocoModule} from "@jsverse/transloco";
+import {CardActionablesComponent} from "../../_single-module/card-actionables/card-actionables.component";
+import {NextExpectedChapter} from "../../_models/series-detail/next-expected-chapter";
+import {UtcToLocalTimePipe} from "../../_pipes/utc-to-local-time.pipe";
+import {SafeHtmlPipe} from "../../_pipes/safe-html.pipe";
+import {PromotedIconComponent} from "../../shared/_components/promoted-icon/promoted-icon.component";
+import {SeriesFormatComponent} from "../../shared/series-format/series-format.component";
+import {BrowsePerson} from "../../_models/person/browse-person";
+import {CompactNumberPipe} from "../../_pipes/compact-number.pipe";
+
+export type CardEntity = Series | Volume | Chapter | UserCollection | PageBookmark | RecentlyAddedItem | NextExpectedChapter | BrowsePerson;
 
 @Component({
   selector: 'app-card-item',
+  standalone: true,
+  imports: [
+    ImageComponent,
+    NgbProgressbar,
+    DownloadIndicatorComponent,
+    FormsModule,
+    NgbTooltip,
+    MangaFormatPipe,
+    MangaFormatIconPipe,
+    CardActionablesComponent,
+    SentenceCasePipe,
+    RouterLink,
+    TranslocoModule,
+    SafeHtmlPipe,
+    RouterLinkActive,
+    PromotedIconComponent,
+    SeriesFormatComponent,
+    DecimalPipe,
+    NgTemplateOutlet,
+    CompactNumberPipe
+  ],
   templateUrl: './card-item.component.html',
-  styleUrls: ['./card-item.component.scss']
+  styleUrls: ['./card-item.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class CardItemComponent implements OnInit, OnDestroy {
+export class CardItemComponent implements OnInit {
+
+  private readonly destroyRef = inject(DestroyRef);
+  public readonly imageService = inject(ImageService);
+  public readonly bulkSelectionService = inject(BulkSelectionService);
+  private readonly libraryService = inject(LibraryService);
+  private readonly downloadService = inject(DownloadService);
+  private readonly utilityService = inject(UtilityService);
+  private readonly messageHub = inject(MessageHubService);
+  private readonly accountService = inject(AccountService);
+  private readonly scrollService = inject(ScrollService);
+  private readonly cdRef = inject(ChangeDetectorRef);
+  private readonly actionFactoryService = inject(ActionFactoryService);
+
+  protected readonly MangaFormat = MangaFormat;
 
   /**
    * Card item url. Will internally handle error and missing covers
@@ -33,31 +103,27 @@ export class CardItemComponent implements OnInit, OnDestroy {
    */
   @Input() title = '';
   /**
-   * Shows below the title. Defaults to not visible
-   */
-  @Input() subtitle = '';
-  /**
    * Any actions to perform on the card
    */
   @Input() actions: ActionItem<any>[] = [];
   /**
    * Pages Read
    */
-  @Input() read = 0; 
+  @Input() read = 0;
   /**
    * Total Pages
    */
-  @Input() total = 0; 
+  @Input() total = 0;
   /**
-   * Supress library link
+   * Suppress library link
    */
-  @Input() supressLibraryLink = false;
+  @Input() suppressLibraryLink = false;
   /**
    * This is the entity we are representing. It will be returned if an action is executed.
    */
-  @Input() entity!: Series | Volume | Chapter | CollectionTag | PageBookmark | RecentlyAddedItem;
+  @Input({required: true}) entity!: CardEntity;
   /**
-   * If the entity is selected or not. 
+   * If the entity is selected or not.
    */
   @Input() selected: boolean = false;
   /**
@@ -65,9 +131,33 @@ export class CardItemComponent implements OnInit, OnDestroy {
    */
   @Input() allowSelection: boolean = false;
   /**
-   * This will supress the cannot read archive warning when total pages is 0
+   * This will suppress the "cannot read archive warning" when total pages is 0
    */
-   @Input() supressArchiveWarning: boolean = false;
+  @Input() suppressArchiveWarning: boolean = false;
+  /**
+   * The number of updates/items within the card. If less than 2, will not be shown.
+   */
+  @Input() count: number = 0;
+  /**
+   * Show a read button. Emits on (readClicked)
+   */
+  @Input() showReadButton: boolean = false;
+  /**
+   * If overlay is enabled, should the text be centered or not
+   */
+  @Input() centerOverlay = false;
+  /**
+   * Will generate a button to instantly read
+   */
+  @Input() hasReadButton = false;
+  /**
+   * A method that if defined will return the url
+   */
+  @Input() linkUrl?: string;
+  /**
+   * Show the format of the series
+   */
+  @Input() showFormat: boolean = true;
   /**
    * Event emitted when item is clicked
    */
@@ -76,112 +166,186 @@ export class CardItemComponent implements OnInit, OnDestroy {
    * When the card is selected.
    */
   @Output() selection = new EventEmitter<boolean>();
+  @Output() readClicked = new EventEmitter<CardEntity>();
+  @ContentChild('subtitle') subtitleTemplate!: TemplateRef<any>;
   /**
    * Library name item belongs to
    */
-  libraryName: string | undefined = undefined; 
-  libraryId: number | undefined = undefined; 
+  libraryName: string | undefined = undefined;
+  libraryId: number | undefined = undefined;
   /**
    * Format of the entity (only applies to Series)
    */
   format: MangaFormat = MangaFormat.UNKNOWN;
-  chapterTitle: string = '';
-  
+  tooltipTitle: string = this.title;
 
-  download$: Observable<Download> | null = null;
-  downloadInProgress: boolean = false;
+  /**
+   * This is the download we get from download service.
+   */
+  download$: Observable<DownloadEvent | null> | null = null;
 
-  isShiftDown: boolean = false;
+  /**
+   * Handles touch events for selection on mobile devices
+   */
+  prevTouchTime: number = 0;
+  /**
+   * Handles touch events for selection on mobile devices to ensure you aren't touch scrolling
+   */
+  prevOffset: number = 0;
+  selectionInProgress: boolean = false;
 
-  get tooltipTitle() {
-    if (this.chapterTitle === '' || this.chapterTitle === null) return this.title;
-    return this.chapterTitle;
-  }
-  
-
-  get MangaFormat(): typeof MangaFormat {
-    return MangaFormat;
-  }
-
-  private readonly onDestroy = new Subject<void>();
-
-  constructor(public imageService: ImageService, private libraryService: LibraryService, 
-    public utilityService: UtilityService, private downloadService: DownloadService,
-    private toastr: ToastrService, public bulkSelectionService: BulkSelectionService) {}
+  private user: User | undefined;
 
   ngOnInit(): void {
+
     if (this.entity.hasOwnProperty('promoted') && this.entity.hasOwnProperty('title')) {
-      this.supressArchiveWarning = true;
+      this.suppressArchiveWarning = true;
+      this.cdRef.markForCheck();
     }
 
-    if (this.supressLibraryLink === false) {
-      this.libraryService.getLibraryNames().pipe(takeUntil(this.onDestroy)).subscribe(names => {
-        if (this.entity !== undefined && this.entity.hasOwnProperty('libraryId')) {
-          this.libraryId = (this.entity as Series).libraryId;
-          this.libraryName = names[this.libraryId];
-        }
-      });
+    if (!this.suppressLibraryLink) {
+      if (this.entity !== undefined && this.entity.hasOwnProperty('libraryId')) {
+        this.libraryId = (this.entity as Series).libraryId;
+        this.cdRef.markForCheck();
+      }
+
+      if (this.libraryId !== undefined && this.libraryId > 0) {
+        this.libraryService.getLibraryName(this.libraryId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(name => {
+          this.libraryName = name;
+          this.cdRef.markForCheck();
+        });
+      }
     }
     this.format = (this.entity as Series).format;
 
     if (this.utilityService.isChapter(this.entity)) {
-      this.chapterTitle = this.utilityService.asChapter(this.entity).titleName;
+      const chapter = this.utilityService.asChapter(this.entity);
+      const chapterTitle = chapter.titleName;
+      if (chapterTitle === '' || chapterTitle === null || chapterTitle === undefined) {
+        const volumeTitle = chapter.volumeTitle
+        if (volumeTitle === '' || volumeTitle === null || volumeTitle === undefined) {
+          this.tooltipTitle = (this.title).trim();
+        } else {
+          this.tooltipTitle = (volumeTitle + ' ' + this.title).trim();
+        }
+      } else {
+        this.tooltipTitle = chapterTitle;
+      }
     } else if (this.utilityService.isVolume(this.entity)) {
       const vol = this.utilityService.asVolume(this.entity);
       if (vol.chapters !== undefined && vol.chapters.length > 0) {
-        this.chapterTitle = vol.chapters[0].titleName;
+        this.tooltipTitle = vol.chapters[0].titleName;
       }
+      if (this.tooltipTitle === '') {
+        this.tooltipTitle = vol.name;
+      }
+    } else if (this.utilityService.isSeries(this.entity)) {
+      this.tooltipTitle = this.title || (this.utilityService.asSeries(this.entity).name);
+    } else if (this.entity.hasOwnProperty('expectedDate')) {
+      this.suppressArchiveWarning = true;
+      this.imageUrl = '';
+      const nextDate = (this.entity as NextExpectedChapter);
+
+      const tokens = nextDate.title.split(':');
+      // this.overlayInformation = `
+      //         <i class="fa-regular fa-clock mb-2" style="font-size: 26px" aria-hidden="true"></i>
+      //         <div>${tokens[0]}</div><div>${tokens[1]}</div>`;
+      // // todo: figure out where this caller is
+      this.centerOverlay = true;
+
+      if (nextDate.expectedDate) {
+        const utcPipe = new UtcToLocalTimePipe();
+        this.title = '~ ' + utcPipe.transform(nextDate.expectedDate, 'shortDate');
+      }
+
+      this.cdRef.markForCheck();
+    } else {
+      this.tooltipTitle = this.title;
     }
+
+
+    this.filterSendTo();
+    this.accountService.currentUser$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(user => {
+      this.user = user;
+    });
+
+    this.messageHub.messages$.pipe(filter(event => event.event === EVENTS.UserProgressUpdate),
+    map(evt => evt.payload as UserProgressUpdateEvent), takeUntilDestroyed(this.destroyRef)).subscribe(updateEvent => {
+      if (this.user === undefined || this.user.username !== updateEvent.username) return;
+      if (this.utilityService.isChapter(this.entity) && updateEvent.chapterId !== this.entity.id) return;
+      if (this.utilityService.isVolume(this.entity) && updateEvent.volumeId !== this.entity.id) return;
+      if (this.utilityService.isSeries(this.entity) && updateEvent.seriesId !== this.entity.id) return;
+
+      // For volume or Series, we can't just take the event
+      if (this.utilityService.isChapter(this.entity)) {
+        const c = this.utilityService.asChapter(this.entity);
+        c.pagesRead = updateEvent.pagesRead;
+        this.read = updateEvent.pagesRead;
+      }
+      if (this.utilityService.isVolume(this.entity) || this.utilityService.isSeries(this.entity)) {
+        if (this.utilityService.isVolume(this.entity)) {
+          const v = this.utilityService.asVolume(this.entity);
+          let sum = 0;
+          const chapters = v.chapters.filter(c => c.volumeId === updateEvent.volumeId);
+          chapters.forEach(chapter => {
+            chapter.pagesRead = updateEvent.pagesRead;
+            sum += chapter.pagesRead;
+          });
+          v.pagesRead = sum;
+          this.read = sum;
+        } else {
+          return;
+        }
+      }
+
+      this.cdRef.detectChanges();
+    });
+
+    this.download$ = this.downloadService.activeDownloads$.pipe(takeUntilDestroyed(this.destroyRef), map((events) => {
+      return this.downloadService.mapToEntityType(events, this.entity);
+    }));
   }
 
-  ngOnDestroy() {
-    this.onDestroy.next();
-    this.onDestroy.complete();
+
+  @HostListener('touchmove', ['$event'])
+  onTouchMove(event: TouchEvent) {
+    if (!this.allowSelection) return;
+
+    this.selectionInProgress = false;
+    this.cdRef.markForCheck();
   }
 
-
-  prevTouchTime: number = 0;
-  prevOffset: number = 0;
   @HostListener('touchstart', ['$event'])
   onTouchStart(event: TouchEvent) {
     if (!this.allowSelection) return;
-    const verticalOffset = (window.pageYOffset 
-      || document.documentElement.scrollTop 
-      || document.body.scrollTop || 0);
 
     this.prevTouchTime = event.timeStamp;
-    this.prevOffset = verticalOffset;
+    this.prevOffset = this.scrollService.scrollPosition;
+    this.selectionInProgress = true;
   }
 
   @HostListener('touchend', ['$event'])
   onTouchEnd(event: TouchEvent) {
     if (!this.allowSelection) return;
     const delta = event.timeStamp - this.prevTouchTime;
-    const verticalOffset = (window.pageYOffset 
-      || document.documentElement.scrollTop 
-      || document.body.scrollTop || 0);
+    const verticalOffset = this.scrollService.scrollPosition;
 
-    if (verticalOffset != this.prevOffset) {
-      this.prevTouchTime = 0;
-
-      return;
-    }
-
-    if (delta >= 300 && delta <= 1000) {
+    if (delta >= 300 && delta <= 1000 && (verticalOffset === this.prevOffset) && this.selectionInProgress) {
       this.handleSelection();
       event.stopPropagation();
       event.preventDefault();
     }
     this.prevTouchTime = 0;
+    this.selectionInProgress = false;
   }
 
 
   handleClick(event?: any) {
+    if (this.bulkSelectionService.hasSelections()) {
+      this.handleSelection();
+      return;
+    }
     this.clicked.emit(this.title);
-  }
-
-  isNullOrEmpty(val: string) {
-    return val === null || val === undefined || val === '';
   }
 
   preventClick(event: any) {
@@ -191,68 +355,27 @@ export class CardItemComponent implements OnInit, OnDestroy {
 
   performAction(action: ActionItem<any>) {
     if (action.action == Action.Download) {
-      if (this.downloadInProgress === true) {
-        this.toastr.info('Download is already in progress. Please wait.');
-        return;
-      }
-      
       if (this.utilityService.isVolume(this.entity)) {
         const volume = this.utilityService.asVolume(this.entity);
-        this.downloadService.downloadVolumeSize(volume.id).pipe(take(1)).subscribe(async (size) => {
-          const wantToDownload = await this.downloadService.confirmSize(size, 'volume');
-          if (!wantToDownload) { return; }
-          this.downloadInProgress = true;
-          this.download$ = this.downloadService.downloadVolume(volume).pipe(
-            takeWhile(val => {
-              return val.state != 'DONE';
-            }),
-            finalize(() => {
-              this.download$ = null;
-              this.downloadInProgress = false;
-            }));
-        });
+        this.downloadService.download('volume', volume);
       } else if (this.utilityService.isChapter(this.entity)) {
         const chapter = this.utilityService.asChapter(this.entity);
-        this.downloadService.downloadChapterSize(chapter.id).pipe(take(1)).subscribe(async (size) => {
-          const wantToDownload = await this.downloadService.confirmSize(size, 'chapter');
-          if (!wantToDownload) { return; }
-          this.downloadInProgress = true;
-          this.download$ = this.downloadService.downloadChapter(chapter).pipe(
-            takeWhile(val => {
-              return val.state != 'DONE';
-            }),
-            finalize(() => {
-              this.download$ = null;
-              this.downloadInProgress = false;
-            }));
-        });
+        this.downloadService.download('chapter', chapter);
       } else if (this.utilityService.isSeries(this.entity)) {
         const series = this.utilityService.asSeries(this.entity);
-        this.downloadService.downloadSeriesSize(series.id).pipe(take(1)).subscribe(async (size) => {
-          const wantToDownload = await this.downloadService.confirmSize(size, 'series');
-          if (!wantToDownload) { return; }
-          this.downloadInProgress = true;
-          this.download$ = this.downloadService.downloadSeries(series).pipe(
-            takeWhile(val => {
-              return val.state != 'DONE';
-            }),
-            finalize(() => {
-              this.download$ = null;
-              this.downloadInProgress = false;
-            }));
-        });
+        this.downloadService.download('series', series);
       }
       return; // Don't propagate the download from a card
     }
 
     if (typeof action.callback === 'function') {
-      action.callback(action.action, this.entity);
+      action.callback(action, this.entity);
     }
   }
 
 
   isPromoted() {
-    const tag = this.entity as CollectionTag;
+    const tag = this.entity as UserCollection;
     return tag.hasOwnProperty('promoted') && tag.promoted;
   }
 
@@ -262,5 +385,34 @@ export class CardItemComponent implements OnInit, OnDestroy {
       event.stopPropagation();
     }
     this.selection.emit(this.selected);
+    this.cdRef.detectChanges();
+  }
+
+  filterSendTo() {
+    if (!this.actions || this.actions.length === 0) return;
+
+    if (this.utilityService.isChapter(this.entity)) {
+      this.actions = this.actionFactoryService.filterSendToAction(this.actions, this.entity as Chapter);
+    } else if (this.utilityService.isVolume(this.entity)) {
+      const vol = this.utilityService.asVolume(this.entity);
+      this.actions = this.actionFactoryService.filterSendToAction(this.actions, vol.chapters[0]);
+    } else if (this.utilityService.isSeries(this.entity)) {
+      const series = (this.entity as Series);
+      // if (series.format === MangaFormat.EPUB || series.format === MangaFormat.PDF) {
+      //   this.actions = this.actions.filter(a => a.title !== 'Send To');
+      // }
+    }
+
+    // this.actions = this.actions.filter(a => {
+    //   if (!a.isAllowed) return true;
+    //   return a.isAllowed(a, this.entity);
+    // });
+  }
+
+  clickRead(event: any) {
+    event.stopPropagation();
+    if (this.bulkSelectionService.hasSelections()) return;
+
+    this.readClicked.emit(this.entity);
   }
 }

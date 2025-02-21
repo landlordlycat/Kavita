@@ -1,9 +1,27 @@
-<div class="tagbadge cursor clickable" style="cursor: pointer;">
-    <div class="media">
-        <!-- <img src="..." class="align-self-center mr-3" alt="..."> -->
-        <i class="fa fa-user-circle align-self-center mr-2" aria-hidden="true"></i>
-        <div class="media-body">
-          <span class="mt-0 mb-0">{{person.name}}</span>
+@if (person !== undefined) {
+  <a class="btn btn-icon p-0" routerLink="/person/{{encodeURIComponent(person.name)}}">
+    <div class="tagbadge cursor clickable">
+      <div class="d-flex flex-column align-items-center justify-content-center">
+        <div class="image-container d-flex align-items-center justify-content-center">
+          @if (HasCoverImage) {
+            <app-image
+                      objectFit="cover"
+                      [styles]="{'object-position': 'top'}"
+                      height="96px"
+                      width="96px"
+                      [imageUrl]="ImageUrl"
+                      [errorImage]="imageService.noPersonImage">
+            </app-image>
+          } @else {
+             <i class="fas fa-user" aria-hidden="true"></i>
+          }
         </div>
+
+        <div class="flex-grow-1 text-center mt-2">
+          <span class="mt-1 mb-0">{{person.name}}</span>
+        </div>
+      </div>
     </div>
-</div>
+  </a>
+}
+

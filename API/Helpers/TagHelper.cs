@@ -1,90 +1,159 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
+using System.Threading.Tasks;
 using API.Data;
+using API.DTOs.Metadata;
 using API.Entities;
+using API.Extensions;
+using API.Helpers.Builders;
+using API.Services.Tasks.Scanner.Parser;
+using Microsoft.EntityFrameworkCore;
 
 namespace API.Helpers;
+#nullable enable
 
 public static class TagHelper
 {
-    /// <summary>
-    ///
-    /// </summary>
-    /// <param name="allTags"></param>
-    /// <param name="names"></param>
-    /// <param name="isExternal"></param>
-    /// <param name="action">Callback for every item. Will give said item back and a bool if item was added</param>
-    public static void UpdateTag(ICollection<Tag> allTags, IEnumerable<string> names, bool isExternal, Action<Tag, bool> action)
+
+    public static async Task UpdateChapterTags(Chapter chapter, IEnumerable<string> tagNames, IUnitOfWork unitOfWork)
     {
-        foreach (var name in names)
+        // Normalize tag names once and store them in a hash set for quick lookups
+        var normalizedTagsToAdd = new HashSet<string>(tagNames.Select(t => t.ToNormalized()));
+        var existingTagsSet = new HashSet<string>(chapter.Tags.Select(t => t.NormalizedTitle));
+
+        var isModified = false;
+
+        // Remove tags that are no longer present in the new list
+        var tagsToRemove = chapter.Tags
+            .Where(t => !normalizedTagsToAdd.Contains(t.NormalizedTitle))
+            .ToList();
+
+        if (tagsToRemove.Any())
         {
-            if (string.IsNullOrEmpty(name.Trim())) continue;
-
-            var added = false;
-            var normalizedName = Parser.Parser.Normalize(name);
-
-            var genre = allTags.FirstOrDefault(p =>
-                p.NormalizedTitle.Equals(normalizedName) && p.ExternalTag == isExternal);
-            if (genre == null)
+            foreach (var tagToRemove in tagsToRemove)
             {
-                added = true;
-                genre = DbFactory.Tag(name, false);
-                allTags.Add(genre);
+                chapter.Tags.Remove(tagToRemove);
             }
-
-            action(genre, added);
+            isModified = true;
         }
-    }
 
-    public static void KeepOnlySameTagBetweenLists(ICollection<Tag> existingTags, ICollection<Tag> removeAllExcept, Action<Tag> action = null)
-    {
-        var existing = existingTags.ToList();
-        foreach (var genre in existing)
+        // Get all normalized titles for bulk lookup from the database
+        var existingTagTitles = await unitOfWork.DataContext.Tag
+            .Where(t => normalizedTagsToAdd.Contains(t.NormalizedTitle))
+            .ToDictionaryAsync(t => t.NormalizedTitle);
+
+        // Find missing tags that are not already in the database
+        var missingTags = normalizedTagsToAdd
+            .Where(nt => !existingTagTitles.ContainsKey(nt))
+            .Select(title => new TagBuilder(title).Build())
+            .ToList();
+
+        // Add missing tags to the database if any
+        if (missingTags.Count != 0)
         {
-            var existingPerson = removeAllExcept.FirstOrDefault(g => g.ExternalTag == genre.ExternalTag && genre.NormalizedTitle.Equals(g.NormalizedTitle));
-            if (existingPerson != null) continue;
-            existingTags.Remove(genre);
-            action?.Invoke(genre);
+            unitOfWork.DataContext.Tag.AddRange(missingTags);
+            await unitOfWork.CommitAsync();  // Commit once after adding missing tags to avoid multiple DB calls
+            isModified = true;
+
+            // Update the dictionary with newly inserted tags for easier lookup
+            foreach (var tag in missingTags)
+            {
+                existingTagTitles[tag.NormalizedTitle] = tag;
+            }
         }
 
+        // Add the new or existing tags to the chapter
+        foreach (var normalizedTitle in normalizedTagsToAdd)
+        {
+            var tag = existingTagTitles[normalizedTitle];
+
+            if (!existingTagsSet.Contains(normalizedTitle))
+            {
+                chapter.Tags.Add(tag);
+                isModified = true;
+            }
+        }
+
+        // Commit changes if modifications were made to the chapter's tags
+        if (isModified)
+        {
+            await unitOfWork.CommitAsync();
+        }
     }
 
     /// <summary>
-    /// Adds the tag to the list if it's not already in there. This will ignore the ExternalTag.
+    /// Returns a list of strings separated by ',', distinct by normalized names, already trimmed and empty entries removed.
     /// </summary>
-    /// <param name="metadataTags"></param>
-    /// <param name="tag"></param>
-    public static void AddTagIfNotExists(ICollection<Tag> metadataTags, Tag tag)
+    /// <param name="comicInfoTagSeparatedByComma"></param>
+    /// <returns></returns>
+    public static IList<string> GetTagValues(string comicInfoTagSeparatedByComma)
     {
-        var existingGenre = metadataTags.FirstOrDefault(p =>
-            p.NormalizedTitle == Parser.Parser.Normalize(tag.Title));
-        if (existingGenre == null)
+        // TODO: Refactor this into an Extension
+        if (string.IsNullOrEmpty(comicInfoTagSeparatedByComma))
         {
-            metadataTags.Add(tag);
+            return ImmutableList<string>.Empty;
+        }
+
+        return comicInfoTagSeparatedByComma.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .DistinctBy(Parser.Normalize)
+            .ToList();
+    }
+
+
+    public static void UpdateTagList(ICollection<TagDto>? existingDbTags, Series series, IReadOnlyCollection<Tag> newTags, Action<Tag> handleAdd, Action onModified)
+    {
+        UpdateTagList(existingDbTags.Select(t => t.Title).ToList(), series, newTags, handleAdd, onModified);
+    }
+
+    public static void UpdateTagList(ICollection<string>? existingDbTags, Series series, IReadOnlyCollection<Tag> newTags, Action<Tag> handleAdd, Action onModified)
+    {
+        if (existingDbTags == null) return;
+
+        var isModified = false;
+
+        // Convert tags and existing genres to hash sets for quick lookups by normalized title
+        var existingTagSet = new HashSet<string>(existingDbTags.Select(t => t.ToNormalized()));
+        var dbTagSet = new HashSet<string>(series.Metadata.Tags.Select(g => g.NormalizedTitle));
+
+        // Remove tags that are no longer present in the input tags
+        var existingTagsCopy = series.Metadata.Tags.ToList();  // Copy to avoid modifying collection while iterating
+        foreach (var existing in existingTagsCopy)
+        {
+            if (!existingTagSet.Contains(existing.NormalizedTitle)) // This correctly ensures removal of non-present tags
+            {
+                series.Metadata.Tags.Remove(existing);
+                isModified = true;
+            }
+        }
+
+        // Prepare a dictionary for quick lookup of genres from the `newTags` collection by normalized title
+        var allTagsDict = newTags.ToDictionary(t => t.NormalizedTitle);
+
+        // Add new tags from the input list
+        foreach (var tagDto in existingDbTags)
+        {
+            var normalizedTitle = tagDto.ToNormalized();
+
+            if (dbTagSet.Contains(normalizedTitle)) continue; // This prevents re-adding existing genres
+
+            if (allTagsDict.TryGetValue(normalizedTitle, out var existingTag))
+            {
+                handleAdd(existingTag);  // Add existing tag from allTagsDict
+            }
+            else
+            {
+                handleAdd(new TagBuilder(tagDto).Build());  // Add new genre if not found
+            }
+            isModified = true;
+        }
+
+        // Call onModified if any changes were made
+        if (isModified)
+        {
+            onModified();
         }
     }
 
-    /// <summary>
-    /// Remove tags on a list
-    /// </summary>
-    /// <remarks>Used to remove before we update/add new tags</remarks>
-    /// <param name="existingTags">Existing tags on Entity</param>
-    /// <param name="tags">Tags from metadata</param>
-    /// <param name="isExternal">Remove external tags?</param>
-    /// <param name="action">Callback which will be executed for each tag removed</param>
-    public static void RemoveTags(ICollection<Tag> existingTags, IEnumerable<string> tags, bool isExternal, Action<Tag> action = null)
-    {
-        var normalizedTags = tags.Select(Parser.Parser.Normalize).ToList();
-        foreach (var person in normalizedTags)
-        {
-            var existingTag = existingTags.FirstOrDefault(p => p.ExternalTag == isExternal && person.Equals(p.NormalizedTitle));
-            if (existingTag == null) continue;
-
-            existingTags.Remove(existingTag);
-            action?.Invoke(existingTag);
-        }
-
-    }
 }
-

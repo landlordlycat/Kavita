@@ -1,0 +1,40 @@
+@import '../../../../theme/variables';
+
+::ng-deep .side-nav app-side-nav-item:first-child {
+    .active-highlight {
+        border-top-left-radius: 3px;
+    }
+}
+
+::ng-deep .side-nav app-side-nav-item:first-child {
+    .side-nav-item {
+        border-top-left-radius: 3px;
+    }
+}
+
+@media (max-width: $grid-breakpoints-lg) {
+    ::ng-deep .side-nav app-side-nav-item:first-child {
+        .side-nav-item {
+            border-top-left-radius: 0px;
+        }
+    }
+
+    ::ng-deep .side-nav app-side-nav-item:last-child {
+        .side-nav-item {
+            border-bottom-left-radius: 0px;
+        }
+    }
+}
+
+@media (max-width: $grid-breakpoints-lg) {
+    .side-nav-item {
+
+        .side-nav-text {
+            width: 100%;
+        }
+
+        span:last-child {
+            flex-grow: 0;
+        }
+    }
+}

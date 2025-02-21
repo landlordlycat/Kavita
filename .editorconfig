@@ -16,3 +16,9 @@ indent_size = 2
 [*.md]
 max_line_length = off
 trim_trailing_whitespace = false
+
+[*.yml]
+indent_size = 2
+
+[*.csproj]
+indent_size = 2

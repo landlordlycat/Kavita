@@ -1,13 +1,13 @@
+import { HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
-import { ActivatedRouteSnapshot } from '@angular/router';
-import { FilterSettings } from 'src/app/cards/card-detail-layout/card-detail-layout.component';
 import { Chapter } from 'src/app/_models/chapter';
-import { LibraryType } from 'src/app/_models/library';
+import { LibraryType } from 'src/app/_models/library/library';
 import { MangaFormat } from 'src/app/_models/manga-format';
-import { AgeRating } from 'src/app/_models/metadata/age-rating';
+import { PaginatedResult } from 'src/app/_models/pagination';
 import { Series } from 'src/app/_models/series';
-import { SeriesFilter } from 'src/app/_models/series-filter';
 import { Volume } from 'src/app/_models/volume';
+import {translate, TranslocoService} from "@jsverse/transloco";
+import {debounceTime, ReplaySubject, shareReplay} from "rxjs";
 
 export enum KEY_CODES {
   RIGHT_ARROW = 'ArrowRight',
@@ -20,6 +20,7 @@ export enum KEY_CODES {
   G = 'g',
   B = 'b',
   F = 'f',
+  H = 'h',
   BACKSPACE = 'Backspace',
   DELETE = 'Delete',
   SHIFT = 'Shift'
@@ -37,21 +38,14 @@ export enum Breakpoint {
 })
 export class UtilityService {
 
+  public readonly activeBreakpointSource = new ReplaySubject<Breakpoint>(1);
+  public readonly activeBreakpoint$ = this.activeBreakpointSource.asObservable().pipe(debounceTime(60), shareReplay({bufferSize: 1, refCount: true}));
+
   mangaFormatKeys: string[] = [];
 
-  constructor() { }
-
-  sortVolumes = (a: Volume, b: Volume) => {
-    if (a === b) { return 0; }
-    else if (a.number === 0) { return 1; }
-    else if (b.number === 0) { return -1; }
-    else {
-      return a.number < b.number ? -1 : 1;
-    }
-  }
 
   sortChapters = (a: Chapter, b: Chapter) => {
-    return parseFloat(a.number) - parseFloat(b.number);
+    return a.minNumber - b.minNumber;
   }
 
   mangaFormatToText(format: MangaFormat): string {
@@ -64,178 +58,42 @@ export class UtilityService {
 
   /**
    * Formats a Chapter name based on the library it's in
-   * @param libraryType 
+   * @param libraryType
    * @param includeHash For comics only, includes a # which is used for numbering on cards
    * @param includeSpace Add a space at the end of the string. if includeHash and includeSpace are true, only hash will be at the end.
-   * @returns 
+   * @param plural Pluralize word
+   * @returns
    */
-  formatChapterName(libraryType: LibraryType, includeHash: boolean = false, includeSpace: boolean = false) {
-    switch(libraryType) {
+   formatChapterName(libraryType: LibraryType, includeHash: boolean = false, includeSpace: boolean = false, plural: boolean = false) {
+    const extra = plural ? 's' : '';
+
+     switch(libraryType) {
       case LibraryType.Book:
-        return 'Book' + (includeSpace ? ' ' : '');
+      case LibraryType.LightNovel:
+        return translate('common.book-num' + extra) + (includeSpace ? ' ' : '');
       case LibraryType.Comic:
+      case LibraryType.ComicVine:
         if (includeHash) {
-          return 'Issue #';
+          return translate('common.issue-hash-num');
         }
-        return 'Issue' + (includeSpace ? ' ' : '');
+        return translate('common.issue-num' + extra) + (includeSpace ? ' ' : '');
+      case LibraryType.Images:
       case LibraryType.Manga:
-        return 'Chapter' + (includeSpace ? ' ' : '');
+        return translate('common.chapter-num' + extra) + (includeSpace ? ' ' : '');
     }
   }
 
-  cleanSpecialTitle(title: string) {
-    let cleaned = title.replace(/_/g, ' ').replace(/SP\d+/g, '').trim();
-    cleaned = cleaned.substring(0, cleaned.lastIndexOf('.'));
-    if (cleaned.trim() === '') {
-      return title;
-    }
-    return cleaned;
-  }
 
   filter(input: string, filter: string): boolean {
-    if (input === null || filter === null) return false;
+    if (input === null || filter === null || input === undefined || filter === undefined) return false;
     const reg = /[_\.\-]/gi;
     return input.toUpperCase().replace(reg, '').includes(filter.toUpperCase().replace(reg, ''));
   }
 
-  /**
-   * Returns a new instance of a filterSettings that is populated with filter presets from URL
-   * @param snapshot 
-   * @param blankFilter Filter to start with 
-   * @returns The Preset filter and if something was set within
-   */
-   filterPresetsFromUrl(snapshot: ActivatedRouteSnapshot, blankFilter: SeriesFilter): [SeriesFilter, boolean] {
-    const filter = Object.assign({}, blankFilter);
-    let anyChanged = false;
-
-    const format = snapshot.queryParamMap.get('format');
-    if (format !== undefined && format !== null) {
-      filter.formats = [...filter.formats, ...format.split(',').map(item => parseInt(item, 10))];
-      anyChanged = true;
-    }
-
-    const genres = snapshot.queryParamMap.get('genres');
-    if (genres !== undefined && genres !== null) {
-      filter.genres = [...filter.genres, ...genres.split(',').map(item => parseInt(item, 10))];
-      anyChanged = true;
-    }
-
-    const ageRating = snapshot.queryParamMap.get('ageRating');
-    if (ageRating !== undefined && ageRating !== null) {
-      filter.ageRating = [...filter.ageRating, ...ageRating.split(',').map(item => parseInt(item, 10))];
-      anyChanged = true;
-    }
-
-    const publicationStatus = snapshot.queryParamMap.get('publicationStatus');
-    if (publicationStatus !== undefined && publicationStatus !== null) {
-      filter.publicationStatus = [...filter.publicationStatus, ...publicationStatus.split(',').map(item => parseInt(item, 10))];
-      anyChanged = true;
-    }
-
-    const tags = snapshot.queryParamMap.get('tags');
-    if (tags !== undefined && tags !== null) {
-      filter.tags = [...filter.tags, ...tags.split(',').map(item => parseInt(item, 10))];
-      anyChanged = true;
-    }
-
-    const languages = snapshot.queryParamMap.get('languages');
-    if (languages !== undefined && languages !== null) {
-      filter.languages = [...filter.languages, ...languages.split(',')];
-      anyChanged = true;
-    }
-
-    const writers = snapshot.queryParamMap.get('writers');
-    if (writers !== undefined && writers !== null) {
-      filter.writers = [...filter.writers, ...writers.split(',').map(item => parseInt(item, 10))];
-      anyChanged = true;
-    }
-
-    const character = snapshot.queryParamMap.get('character');
-    if (character !== undefined && character !== null) {
-      filter.character = [...filter.character, ...character.split(',').map(item => parseInt(item, 10))];
-      anyChanged = true;
-    }
-
-    const colorist = snapshot.queryParamMap.get('colorist');
-    if (colorist !== undefined && colorist !== null) {
-      filter.colorist = [...filter.colorist, ...colorist.split(',').map(item => parseInt(item, 10))];
-      anyChanged = true;
-    }
-
-    const coverArtists = snapshot.queryParamMap.get('coverArtists');
-    if (coverArtists !== undefined && coverArtists !== null) {
-      filter.coverArtist = [...filter.coverArtist, ...coverArtists.split(',').map(item => parseInt(item, 10))];
-      anyChanged = true;
-    }
-
-    const editor = snapshot.queryParamMap.get('editor');
-    if (editor !== undefined && editor !== null) {
-      filter.editor = [...filter.editor, ...editor.split(',').map(item => parseInt(item, 10))];
-      anyChanged = true;
-    }
-
-    const inker = snapshot.queryParamMap.get('inker');
-    if (inker !== undefined && inker !== null) {
-      filter.inker = [...filter.inker, ...inker.split(',').map(item => parseInt(item, 10))];
-      anyChanged = true;
-    }
-
-    const letterer = snapshot.queryParamMap.get('letterer');
-    if (letterer !== undefined && letterer !== null) {
-      filter.letterer = [...filter.letterer, ...letterer.split(',').map(item => parseInt(item, 10))];
-      anyChanged = true;
-    }
-
-    const penciller = snapshot.queryParamMap.get('penciller');
-    if (penciller !== undefined && penciller !== null) {
-      filter.penciller = [...filter.penciller, ...penciller.split(',').map(item => parseInt(item, 10))];
-      anyChanged = true;
-    }
-
-    const publisher = snapshot.queryParamMap.get('publisher');
-    if (publisher !== undefined && publisher !== null) {
-      filter.publisher = [...filter.publisher, ...publisher.split(',').map(item => parseInt(item, 10))];
-      anyChanged = true;
-    }
-
-    const translators = snapshot.queryParamMap.get('translators');
-    if (translators !== undefined && translators !== null) {
-      filter.translators = [...filter.translators, ...translators.split(',').map(item => parseInt(item, 10))];
-      anyChanged = true;
-    }
-    
-
-    return [filter, anyChanged];
-  }
-
-  mangaFormat(format: MangaFormat): string {
-    switch (format) {
-      case MangaFormat.EPUB:
-        return 'EPUB';
-      case MangaFormat.ARCHIVE:
-        return 'Archive';
-      case MangaFormat.IMAGE:
-        return 'Image';
-      case MangaFormat.PDF:
-        return 'PDF';
-      case MangaFormat.UNKNOWN:
-        return 'Unknown';
-    }
-  }
-
-  mangaFormatIcon(format: MangaFormat): string {
-    switch (format) {
-      case MangaFormat.EPUB:
-        return 'fa-book';
-      case MangaFormat.ARCHIVE:
-        return 'fa-file-archive';
-      case MangaFormat.IMAGE:
-        return 'fa-image';
-      case MangaFormat.PDF:
-        return 'fa-file-pdf';
-      case MangaFormat.UNKNOWN:
-        return 'fa-question';
-    }
+  filterMatches(input: string, filter: string): boolean {
+    if (input === null || filter === null || input === undefined || filter === undefined) return false;
+    const reg = /[_\.\-]/gi;
+    return input.toUpperCase().replace(reg, '') === filter.toUpperCase().replace(reg, '');
   }
 
   isVolume(d: any) {
@@ -266,7 +124,7 @@ export class UtilityService {
     if (window.innerWidth <= Breakpoint.Mobile) return Breakpoint.Mobile;
     else if (window.innerWidth > Breakpoint.Mobile && window.innerWidth <= Breakpoint.Tablet) return Breakpoint.Tablet;
     else if (window.innerWidth > Breakpoint.Tablet) return Breakpoint.Desktop
-    
+
     return Breakpoint.Desktop;
   }
 
@@ -278,5 +136,71 @@ export class UtilityService {
         rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
         rect.right <= (window.innerWidth || document.documentElement.clientWidth)
     );
+  }
+
+  deepEqual(object1: any | undefined | null, object2: any | undefined | null) {
+    if ((object1 === null || object1 === undefined) && (object2 !== null || object2 !== undefined)) return false;
+    if ((object2 === null || object2 === undefined) && (object1 !== null || object1 !== undefined)) return false;
+    if (object1 === null && object2 === null) return true;
+    if (object1 === undefined && object2 === undefined) return true;
+
+
+    const keys1 = Object.keys(object1);
+    const keys2 = Object.keys(object2);
+    if (keys1.length !== keys2.length) {
+      return false;
+    }
+    for (const key of keys1) {
+      const val1 = object1[key];
+      const val2 = object2[key];
+      const areObjects = this.isObject(val1) && this.isObject(val2);
+      if (
+        areObjects && !this.deepEqual(val1, val2) ||
+        !areObjects && val1 !== val2
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private isObject(object: any) {
+    return object != null && typeof object === 'object';
+  }
+
+  addPaginationIfExists(params: HttpParams, pageNum?: number, itemsPerPage?: number) {
+    if (pageNum !== null && pageNum !== undefined && itemsPerPage !== null && itemsPerPage !== undefined) {
+      params = params.append('pageNumber', pageNum + '');
+      params = params.append('pageSize', itemsPerPage + '');
+    }
+    return params;
+  }
+
+  createPaginatedResult(response: any, paginatedVariable: PaginatedResult<any[]> | undefined = undefined) {
+    if (paginatedVariable === undefined) {
+      paginatedVariable = new PaginatedResult();
+    }
+    if (response.body === null) {
+      paginatedVariable.result = [];
+    } else {
+      paginatedVariable.result = response.body;
+    }
+
+    const pageHeader = response.headers?.get('Pagination');
+    if (pageHeader !== null) {
+      paginatedVariable.pagination = JSON.parse(pageHeader);
+    }
+
+    return paginatedVariable;
+  }
+
+  getWindowDimensions() {
+    const windowWidth = window.innerWidth
+                  || document.documentElement.clientWidth
+                  || document.body.clientWidth;
+    const windowHeight = window.innerHeight
+                  || document.documentElement.clientHeight
+                  || document.body.clientHeight;
+    return [windowWidth, windowHeight];
   }
 }
